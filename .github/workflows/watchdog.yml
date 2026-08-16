@@ -15,9 +15,19 @@ name: Morpheus watchdog
 
 on:
   schedule:
-    # Every 15 minutes. GitHub frequently delays cron by several minutes and
-    # disables schedules after 60 days of repo inactivity — budget for both.
-    - cron: "*/15 * * * *"
+    # 13 is deliberate: coprime with the on-box monitor's 10-minute period, so
+    # the two layers stay maximally out of phase instead of beating together.
+    #
+    # CAVEAT: cron cannot express a true 13-minute period. "*/13" fires at
+    # :00 :13 :26 :39 :52 and then RESETS at the hour, so the last gap is 8
+    # minutes, not 13. Full independence is not achievable in cron because 13
+    # does not divide 60. In practice this does not matter much: GitHub delays
+    # scheduled runs by several minutes and unpredictably, and the on-box timer
+    # is free-running (OnUnitActiveSec + 45s jitter) rather than wall-clock
+    # aligned, so the two drift relative to each other anyway.
+    #
+    # GitHub also disables schedules after 60 days of repo inactivity.
+    - cron: "*/13 * * * *"
   workflow_dispatch: {}
 
 concurrency:
