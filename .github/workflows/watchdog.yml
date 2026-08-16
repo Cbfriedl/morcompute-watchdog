@@ -1,0 +1,40 @@
+# Deploy to a PUBLIC repo as .github/workflows/watchdog.yml
+#
+# Required repo secret:
+#   NTFY_TOPIC        - the ntfy topic to alert to
+# Required repo variables (Settings -> Secrets and variables -> Actions -> Variables):
+#   PROVIDER_ADDRESS  - 0x...
+#   PROVIDER_ENDPOINT - host:port fallback, used only if the chain read fails
+#
+# Nothing here is a credential belonging to the provider box. The provider
+# address and endpoint are already public in on-chain history, so keeping this
+# repo public costs no additional exposure — and public repos get unlimited
+# Actions minutes.
+
+name: Morpheus watchdog
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub frequently delays cron by several minutes and
+    # disables schedules after 60 days of repo inactivity — budget for both.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run watchdog
+        env:
+          PROVIDER_ADDRESS: ${{ vars.PROVIDER_ADDRESS }}
+          PROVIDER_ENDPOINT: ${{ vars.PROVIDER_ENDPOINT }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          HEADROOM_WARN_PCT: "30"
+        run: python3 watchdog/watchdog.py
