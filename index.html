@@ -108,7 +108,8 @@
     border:1px solid var(--rule);background:var(--surface);color:var(--ink);min-width:150px}
   .chkl{display:inline-flex;align-items:center;gap:5px;color:var(--ink-2);cursor:pointer}
   .selcount{color:var(--ink-3)}
-  #mktable thead th{cursor:pointer;user-select:none;white-space:nowrap}
+  #mktable thead th,#pvtable thead th{cursor:pointer;user-select:none;white-space:nowrap}
+  .selrow{background:color-mix(in srgb, var(--accent) 10%, transparent)}
   .pill-live{color:var(--good);font-weight:660}
   .pill-dead{color:var(--crit);font-weight:660}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -158,7 +159,7 @@
     <div class="card earn"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
     <div class="card earn"><span class="k">Sessions</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
     <div class="card earn"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
-    <div class="card time"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
+    <div class="card time"><span class="k">Counter resets</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
     <div class="card time"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
     <div class="card hold"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
     <div class="card hold"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
@@ -188,7 +189,7 @@
       <input type="search" id="mkfilter" placeholder="filter model or tag…" aria-label="Filter models">
       <label class="chkl"><input type="radio" name="hd" value="all" checked> all</label>
       <label class="chkl"><input type="radio" name="hd" value="live"> only live (a bidder has headroom)</label>
-      <label class="chkl"><input type="radio" name="hd" value="dead"> only stalled (all bidders capped)</label>
+      <label class="chkl"><input type="radio" name="hd" value="dead"> only stalled (no bidder has headroom)</label>
       <span class="selcount" id="mkcount"></span>
     </div>
     <table id="mktable">
@@ -199,6 +200,27 @@
       </tr></thead>
       <tbody id="mkbody"></tbody>
     </table>
+  </div>
+
+  <div class="tbl" id="provwrap" style="display:none">
+    <h2 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>Providers</span>
+      <span style="font-weight:400;font-size:11.5px;color:var(--ink-3)" id="pv-note"></span>
+    </h2>
+    <div class="toolbar" style="padding:0 8px 8px">
+      <input type="search" id="pvfilter" placeholder="filter address…" aria-label="Filter providers">
+      <label class="chkl"><input type="checkbox" id="pv-earning"> only those earning</label>
+      <span class="selcount" id="pvcount"></span>
+    </div>
+    <table id="pvtable">
+      <thead><tr>
+        <th data-k="a">Address</th><th data-k="stake">Staked</th>
+        <th data-k="earned">Earned</th><th data-k="head">Headroom</th>
+        <th data-k="pct">Earned / staked</th><th data-k="s10">Sessions 10d</th>
+      </tr></thead>
+      <tbody id="pvbody"></tbody>
+    </table>
+    <div id="pvdrill"></div>
   </div>
 
   <footer>
@@ -461,6 +483,12 @@ async function loadCensus(){
     + C.totalBids + " bids · " + C.providers?.length + " providers";
   document.getElementById("marketwrap").style.display = "";
   renderMarket();
+  if (C.providers && C.providers.length){
+    document.getElementById("provwrap").style.display = "";
+    document.getElementById("pv-note").textContent =
+      (C.sessions10d ?? 0) + " sessions network-wide in 10d · " + (C.sessionsNote||"");
+    renderProviders();
+  }
 }
 
 function renderMarket(){
@@ -496,6 +524,21 @@ function renderMarket(){
 document.addEventListener("DOMContentLoaded", ()=>{
   const f=document.getElementById("mkfilter"); if(f) f.addEventListener("input", renderMarket);
   document.querySelectorAll('input[name=hd]').forEach(r=>r.addEventListener("change", renderMarket));
+  const pf=document.getElementById("pvfilter"); if(pf) pf.addEventListener("input", renderProviders);
+  const pe=document.getElementById("pv-earning"); if(pe) pe.addEventListener("change", renderProviders);
+  const pb=document.getElementById("pvbody");
+  if(pb) pb.addEventListener("click", e=>{
+    const tr=e.target.closest("tr[data-a]"); if(!tr) return;
+    pvOpen = (pvOpen===tr.dataset.a) ? null : tr.dataset.a;
+    renderProviders();
+  });
+  document.querySelectorAll('#pvtable thead th[data-k]').forEach(th=>{
+    th.addEventListener("click", ()=>{
+      const k=th.dataset.k;
+      if(k===pvSort) pvDir=-pvDir; else { pvSort=k; pvDir=(k==="a")?1:-1; }
+      renderProviders();
+    });
+  });
   document.querySelectorAll('#mktable thead th[data-k]').forEach(th=>{
     th.addEventListener("click", ()=>{
       const k=th.dataset.k;
@@ -504,6 +547,68 @@ document.addEventListener("DOMContentLoaded", ()=>{
     });
   });
 });
+
+/* ---------- providers ---------- */
+let pvSort = "s10", pvDir = -1, pvOpen = null;
+
+function renderProviders(){
+  if(!CENSUS || !CENSUS.providers) return;
+  const q = (document.getElementById("pvfilter").value||"").toLowerCase().trim();
+  const onlyEarn = document.getElementById("pv-earning").checked;
+  let rows = CENSUS.providers.filter(p=>!p.deleted);
+  if(q) rows = rows.filter(p=>p.a.toLowerCase().includes(q));
+  if(onlyEarn) rows = rows.filter(p=>(p.s10||0) > 0);
+  rows = rows.slice().sort((a,b)=>{
+    let x=a[pvSort], y=b[pvSort];
+    if(typeof x === "string") return pvDir * x.localeCompare(y);
+    return pvDir * ((x||0)-(y||0));
+  });
+  document.getElementById("pvcount").textContent =
+    rows.length + " of " + CENSUS.providers.filter(p=>!p.deleted).length + " providers";
+  document.getElementById("pvbody").innerHTML = rows.map(p=>`
+    <tr data-a="${p.a}" style="cursor:pointer" class="${pvOpen===p.a?'selrow':''}">
+      <td class="num">${p.a.slice(0,12)}…${p.head<=0.0001?' <span class="pill-dead">choked</span>':''}</td>
+      <td class="num">${(p.stake||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
+      <td class="num">${(p.earned||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
+      <td class="num">${(p.head||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
+      <td class="num">${(p.pct||0).toFixed(1)}%</td>
+      <td class="num">${p.s10 ?? "—"}</td>
+    </tr>`).join("");
+  drawDrill();
+}
+
+function drawDrill(){
+  const el = document.getElementById("pvdrill");
+  if(!pvOpen){ el.innerHTML=""; return; }
+  const p = (CENSUS.providers||[]).find(x=>x.a===pvOpen);
+  if(!p){ el.innerHTML=""; return; }
+  const names = {}; (CENSUS.models||[]).forEach(m=>{ names[m.id]=m.n; });
+  const rows = Object.entries(p.by||{}).sort((a,b)=>b[1]-a[1]);
+  el.innerHTML = `
+    <div style="margin:10px 8px 14px;padding:14px;border:1px solid var(--rule);
+                border-radius:10px;background:var(--rule-2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <span class="num" style="font-weight:660">${p.a}</span>
+        <button id="pv-close">Collapse ✕</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin:8px 0 10px;display:flex;gap:16px;flex-wrap:wrap">
+        <span>staked <b>${(p.stake||0).toLocaleString()}</b></span>
+        <span>earned <b>${(p.earned||0).toLocaleString()}</b></span>
+        <span>headroom <b>${(p.head||0).toLocaleString()}</b></span>
+        <span><b>${p.s10||0}</b> sessions in 10d</span>
+        <span>across <b>${rows.length}</b> model${rows.length===1?'':'s'}</span>
+      </div>
+      ${rows.length ? `<table><thead><tr><th>Model</th><th>Sessions 10d</th><th>Share</th></tr></thead><tbody>
+        ${rows.map(([mid,n])=>`<tr><td>${names[mid]||mid.slice(0,18)+"…"}</td>
+          <td class="num">${n}</td>
+          <td class="num">${(100*n/(p.s10||1)).toFixed(1)}%</td></tr>`).join("")}
+      </tbody></table>`
+      : `<div style="font-size:12.5px;color:var(--ink-3)">No sessions in the last 10 days.
+         Its bids are up; nothing has been bought.</div>`}
+    </div>`;
+  const c=document.getElementById("pv-close");
+  if(c) c.addEventListener("click", ()=>{ pvOpen=null; renderProviders(); });
+}
 
 async function loadPrice(){
   try{

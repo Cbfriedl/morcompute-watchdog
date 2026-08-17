@@ -44,7 +44,8 @@ EARNER_WINDOW_DAYS = int(os.environ.get("EARNER_WINDOW_DAYS", "10"))
 # Session scanning is thousands of calls, so the difference decides whether the
 # job finishes inside the Actions timeout.
 BATCH_FOR = {"mainnet.base.org": 10, "base.drpc.org": 3, "1rpc.io": 3}
-SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "7"))
+SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "10"))   # widest window scanned
+SESSION_SHORT_DAYS = int(os.environ.get("SESSION_SHORT_DAYS", "7"))
 SESSION_CAP_PER_PROVIDER = int(os.environ.get("SESSION_CAP", "4000"))
 
 RPCS = [r.strip() for r in os.environ.get(
@@ -114,8 +115,16 @@ def chunked(seq, n):
         yield seq[i:i + n]
 
 
-def sessions_by_model(log):
-    """7-day session counts per model.
+def scan_sessions(log):
+    """Session activity over the trailing window.
+
+    Returns (per_model, per_provider, note) where
+      per_model    = {modelId: {"s7": n, "s10": n}}
+      per_provider = {addr: {"s10": n, "by": {modelId: n}}}
+
+    getSession is one call per session and there are thousands, so this is the
+    expensive half of the census. It walks each provider's list newest-first and
+    stops once an entire batch predates the cutoff.
 
     getSession is one call per session and there are thousands, so this is the
     expensive half of the census. It walks each provider's session list from the
@@ -124,7 +133,10 @@ def sessions_by_model(log):
     Returns (counts_by_model, coverage_note).
     """
     B = batch_limit()
-    cutoff = int(time.time()) - SESSION_DAYS * 86400
+    now = int(time.time())
+    cutoff = now - SESSION_DAYS * 86400
+    short_cut = now - SESSION_SHORT_DAYS * 86400
+    # (provider, bidId) -> [n_in_short_window, n_in_full_window]
     counts, scanned, capped_provs = {}, 0, []
 
     try:
@@ -175,17 +187,20 @@ def sessions_by_model(log):
                         older += 1
                         continue
                     bid = "0x" + r[2]
-                    bid_model.setdefault(bid, None)
-                    counts[bid] = counts.get(bid, 0) + 1
+                    key = (prov, bid)
+                    c = counts.setdefault(key, [0, 0])
+                    if opened >= short_cut:
+                        c[0] += 1
+                    c[1] += 1
                     scanned += 1
                 except Exception:
                     pass
             if older == len(ch):
                 stop = True
 
-    # bid -> model
-    need = [b for b in counts]
-    per_model = {}
+    # bid -> model, resolved once per distinct bid
+    need = sorted({b for (_p, b) in counts})
+    bid2model = {}
     for ch in [need[i:i + B] for i in range(0, len(need), B)]:
         try:
             res = {x["id"]: x for x in rpc(
@@ -194,15 +209,83 @@ def sessions_by_model(log):
             continue
         for i, b in enumerate(ch):
             try:
-                mid = "0x" + W(res[i]["result"])[1]
-                per_model[mid] = per_model.get(mid, 0) + counts[b]
+                bid2model[b] = "0x" + W(res[i]["result"])[1]
             except Exception:
                 pass
-    note = "%d sessions in %dd across %d models" % (scanned, SESSION_DAYS, len(per_model))
+
+    per_model, per_provider = {}, {}
+    for (prov, bid), (n7, n10) in counts.items():
+        mid = bid2model.get(bid)
+        if not mid:
+            continue
+        m = per_model.setdefault(mid, {"s7": 0, "s10": 0})
+        m["s7"] += n7
+        m["s10"] += n10
+        p = per_provider.setdefault(prov, {"s10": 0, "by": {}})
+        p["s10"] += n10
+        p["by"][mid] = p["by"].get(mid, 0) + n10
+
+    note = "%d sessions in %dd across %d models, %d providers" % (
+        scanned, SESSION_DAYS, len(per_model), len(per_provider))
     if capped_provs:
         note += "; capped at %d for %s" % (SESSION_CAP_PER_PROVIDER, ",".join(capped_provs))
     log("  " + note)
-    return per_model, note
+    return per_model, per_provider, note
+
+
+T_PROVIDER_REGISTERED = ("0x70abce74777b3838ae60a33a6b9a87d9d25532668"
+                         "fe4fea548554c55868579c0")
+BLOCKSCOUT = os.environ.get("BLOCKSCOUT", "https://base.blockscout.com")
+
+
+def _bs(url, tries=5):
+    """Blockscout intermittently answers `{"status":"0","message":"Something went
+    wrong."}` and succeeds on retry, so an API-level failure is retried too —
+    not just transport errors."""
+    for a in range(tries):
+        try:
+            r = subprocess.run(["curl", "-s", "-L", "--max-time", "45",
+                                "-H", "accept: application/json", url],
+                               capture_output=True)
+            d = json.loads(r.stdout)
+            # v1 endpoints report failure in-band; v2 have no "status" field
+            if isinstance(d, dict) and d.get("status") == "0":
+                raise ValueError(d.get("message", "blockscout status 0"))
+            return d
+        except Exception:
+            time.sleep(1.5 * (a + 1))
+    return None
+
+
+def last_stake(addr):
+    """Most recent providerRegister with a non-zero amount.
+
+    The ProviderRegistered event carries only the address, so the amount has to
+    come from the transaction input. Blockscout's v1 logs endpoint is used
+    because every public RPC caps eth_getLogs at 10k blocks, while this serves
+    millions in one call. Returns (unix_ts, amount_MOR) or (None, None).
+    """
+    t1 = "0x" + addr[2:].lower().rjust(64, "0")
+    d = _bs("%s/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest"
+            "&address=%s&topic0=%s&topic1=%s&topic0_1_opr=and"
+            % (BLOCKSCOUT, DIAMOND, T_PROVIDER_REGISTERED, t1))
+    logs = (d or {}).get("result")
+    if not isinstance(logs, list) or not logs:
+        return None, None
+    # walk back from the newest until one carries an amount
+    for lg in sorted(logs, key=lambda x: int(x["blockNumber"], 16), reverse=True)[:12]:
+        tx = _bs("%s/api/v2/transactions/%s" % (BLOCKSCOUT, lg["transactionHash"]))
+        # v2 sometimes answers with a bare string on error rather than an object
+        if not isinstance(tx, dict):
+            continue
+        di = tx.get("decoded_input") or {}
+        for prm in di.get("parameters") or []:
+            if prm.get("name") == "amount_":
+                amt = int(prm["value"]) / 1e18
+                if amt > 0:
+                    ts = int(lg.get("timeStamp", "0x0"), 16) if lg.get("timeStamp") else None
+                    return ts, round(amt, 4)
+    return None, None
 
 
 def provider_snapshot(log):
@@ -244,6 +327,18 @@ def provider_snapshot(log):
                 })
             except Exception:
                 pass
+    if os.environ.get("CENSUS_LAST_STAKE", "1") == "1":
+        got = 0
+        for p in out:
+            try:
+                ts, amt = last_stake(p["a"])
+                if ts:
+                    p["lastStakeAt"] = ts
+                    p["lastStakeAmt"] = amt
+                    got += 1
+            except Exception:
+                pass
+        log("  last-stake resolved for %d/%d providers" % (got, len(out)))
     log("provider snapshot: %d" % len(out))
     return out
 
@@ -368,10 +463,10 @@ def main():
     for b in live:
         per.setdefault(b["model"], []).append(b)
 
-    sess7, sess_note = ({}, "skipped")
+    sess_model, sess_prov, sess_note = ({}, {}, "skipped")
     if os.environ.get("CENSUS_SESSIONS", "1") == "1":
         try:
-            sess7, sess_note = sessions_by_model(log)
+            sess_model, sess_prov, sess_note = scan_sessions(log)
         except Exception as e:
             log("session scan failed: %s" % str(e)[:120])
             sess_note = "failed: %s" % str(e)[:80]
@@ -397,7 +492,8 @@ def main():
             "mn": pr[0], "md": round(statistics.median(pr), 4), "mx": pr[-1],
             "t": "|".join(m.get("tags") or []),
             "r": 1 if m.get("real") else 0,
-            "s7": sess7.get(mid, 0),
+            "s7": (sess_model.get(mid) or {}).get("s7", 0),
+            "s10": (sess_model.get(mid) or {}).get("s10", 0),
             "px": pr,
             "pv": sorted(([x["provider"], round(x["pps"] * 86400 / 1e18, 4)]
                           for x in bl), key=lambda y: -y[1]),
@@ -427,8 +523,12 @@ def main():
         "earners10d": earners,
         "earnerWindowDays": EARNER_WINDOW_DAYS,
         "earnerSpanDays": earner_span,
-        "providers": providers_snap,
-        "sessions7d": sum(sess7.values()),
+        "providers": [dict(p,
+                           s10=(sess_prov.get(p["a"]) or {}).get("s10", 0),
+                           by=(sess_prov.get(p["a"]) or {}).get("by", {}))
+                      for p in providers_snap],
+        "sessions7d": sum(v["s7"] for v in sess_model.values()),
+        "sessions10d": sum(v["s10"] for v in sess_model.values()),
         "sessionsNote": sess_note,
         "sessionDays": SESSION_DAYS,
         "runSeconds": round(time.time() - t0),
