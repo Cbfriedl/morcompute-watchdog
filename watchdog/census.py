@@ -50,7 +50,9 @@ SESSION_CAP_PER_PROVIDER = int(os.environ.get("SESSION_CAP", "4000"))
 
 RPCS = [r.strip() for r in os.environ.get(
     "CENSUS_RPCS",
-    "https://base.drpc.org,https://mainnet.base.org,https://1rpc.io/base"
+    # mainnet.base.org first: it accepts batches of 10 against dRPC's 3, which
+    # is a 3x reduction in request count over thousands of session reads.
+    "https://mainnet.base.org,https://base.drpc.org"
 ).split(",") if r.strip()]
 
 OUT = os.environ.get("CENSUS_FILE", "census.json")
@@ -59,18 +61,30 @@ _rpc_i = [0]
 
 
 def batch_limit():
-    """Smallest ceiling across the endpoints in rotation — a batch has to be
-    acceptable to whichever endpoint happens to serve it."""
-    lim = 100
-    for u in RPCS:
-        for host, n in BATCH_FOR.items():
-            if host in u:
-                lim = min(lim, n)
-    return max(1, min(lim, 10))
+    """Ceiling of the PRIMARY endpoint, not the weakest.
+
+    Taking the minimum across all endpoints meant dRPC's limit of 3 capped
+    everything, tripling the request count and blowing the job's time budget.
+    rpc() now splits a batch automatically if the serving endpoint rejects its
+    size, so sizing to the primary is safe.
+    """
+    for host, n in BATCH_FOR.items():
+        if RPCS and host in RPCS[0]:
+            return n
+    return 3
+
+
+BATCH_ERR = ("maximum 10 calls", "batch of more than", "batch size",
+             "too many", "not allowed on free plan")
 
 
 def rpc(batch):
-    """Round-robin across endpoints; only a failure of all of them raises."""
+    """Round-robin across endpoints; only a failure of all of them raises.
+
+    If an endpoint rejects the batch for being too large, the payload is split
+    and the halves retried, so a slower endpoint never forces the whole job
+    down to its own batch ceiling.
+    """
     last = None
     for attempt in range(len(RPCS) * 4):
         url = RPCS[_rpc_i[0] % len(RPCS)]
@@ -82,8 +96,16 @@ def rpc(batch):
                 input=json.dumps(batch).encode(), capture_output=True)
             r = json.loads(p.stdout)
             if not isinstance(r, list):
+                msg = str(r).lower()
+                if len(batch) > 1 and any(k in msg for k in BATCH_ERR):
+                    mid = len(batch) // 2
+                    return rpc(batch[:mid]) + rpc(batch[mid:])
                 raise ValueError(str(r)[:140])
             if any("result" not in x for x in r):
+                msg = str(r).lower()
+                if len(batch) > 1 and any(k in msg for k in BATCH_ERR):
+                    mid = len(batch) // 2
+                    return rpc(batch[:mid]) + rpc(batch[mid:])
                 raise ValueError("partial: " + str(r)[:140])
             return r
         except Exception as e:

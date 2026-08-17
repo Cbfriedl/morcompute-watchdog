@@ -15,6 +15,8 @@
     --c-hold-bg:#eff5fd; --c-hold-br:#cfe0f7; --c-hold-ink:#1d5fae;
     --c-earn-bg:#ecf8f3; --c-earn-br:#c9e9dc; --c-earn-ink:#10805a;
     --c-time-bg:#fdf1ec; --c-time-br:#f7dbcd; --c-time-ink:#b8501f;
+    /* zero-headroom providers: burgundy, distinct from the orange time cards */
+    --choke-bg:#f7e9ec; --choke-ink:#8c1f33; --choke-br:#e6c3cb;
     --shadow:0 1px 2px rgba(14,20,24,.05),0 8px 24px -14px rgba(14,20,24,.2);
   }
   @media (prefers-color-scheme:dark){
@@ -29,6 +31,7 @@
       --c-hold-bg:#131f2c; --c-hold-br:#23384f; --c-hold-ink:#6aa9ee;
       --c-earn-bg:#10231d; --c-earn-br:#1e4034; --c-earn-ink:#4fc79c;
       --c-time-bg:#251811; --c-time-br:#46301f; --c-time-ink:#ef9163;
+      --choke-bg:#2a1119; --choke-ink:#e07d90; --choke-br:#4a2531;
       --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
     }
   }
@@ -112,6 +115,9 @@
   .selrow{background:color-mix(in srgb, var(--accent) 10%, transparent)}
   .pill-live{color:var(--good);font-weight:660}
   .pill-dead{color:var(--crit);font-weight:660}
+  tr.choked td{background:var(--choke-bg);color:var(--choke-ink)}
+  tr.choked td:first-child{box-shadow:inset 3px 0 0 var(--choke-ink)}
+  tr.choked .chokemark{color:var(--choke-ink);font-weight:680}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -566,8 +572,8 @@ function renderProviders(){
   document.getElementById("pvcount").textContent =
     rows.length + " of " + CENSUS.providers.filter(p=>!p.deleted).length + " providers";
   document.getElementById("pvbody").innerHTML = rows.map(p=>`
-    <tr data-a="${p.a}" style="cursor:pointer" class="${pvOpen===p.a?'selrow':''}">
-      <td class="num">${p.a.slice(0,12)}…${p.head<=0.0001?' <span class="pill-dead">choked</span>':''}</td>
+    <tr data-a="${p.a}" style="cursor:pointer" class="${p.head<=0.0001?'choked ':''}${pvOpen===p.a?'selrow':''}">
+      <td class="num">${p.a.slice(0,12)}…${p.head<=0.0001?' <span class="chokemark">must re-stake</span>':''}</td>
       <td class="num">${(p.stake||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
       <td class="num">${(p.earned||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
       <td class="num">${(p.head||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
