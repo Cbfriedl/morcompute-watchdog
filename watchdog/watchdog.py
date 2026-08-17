@@ -151,8 +151,10 @@ def main():
 
     # ---- external liveness -------------------------------------------
     # This is the check the on-box monitor cannot perform for itself.
+    tcp_ok = False
     if endpoint:
         ok, detail = check_tcp(endpoint)
+        tcp_ok = ok
         notes.append("tcp %s: %s" % (endpoint, detail))
         if not ok:
             problems.append("Provider endpoint %s is UNREACHABLE from the public "
@@ -161,6 +163,43 @@ def main():
     else:
         problems.append("No provider endpoint known (chain read failed and "
                         "PROVIDER_ENDPOINT unset) — cannot probe liveness.")
+
+    # ---- record the probe so the dashboard can show real uptime -------
+    # A browser cannot TCP-probe the node, so availability has to come from
+    # here. We keep a rolling window and commit it back to the repo; the
+    # dashboard reads it as a static file.
+    hist_path = os.environ.get("STATUS_FILE", "status.json")
+    try:
+        try:
+            with open(hist_path) as f:
+                hist = json.load(f)
+        except Exception:
+            hist = {"checks": []}
+        checks = hist.get("checks") or []
+        checks.append({"t": int(time.time()),
+                       "ok": 1 if (endpoint and tcp_ok) else 0})
+        # 7 days at one probe per 13 min ~= 776 entries
+        checks = checks[-800:]
+        now_ts = int(time.time())
+        def uptime_pct(window):
+            sel = [c for c in checks if now_ts - c["t"] <= window]
+            return round(100.0 * sum(c["ok"] for c in sel) / len(sel), 2) if sel else None
+        hist = {
+            "updated": stamp,
+            "endpoint": endpoint,
+            "last_ok": bool(checks[-1]["ok"]),
+            "uptime_24h": uptime_pct(86400),
+            "uptime_7d": uptime_pct(7 * 86400),
+            "checks_total": len(checks),
+            "first_check": checks[0]["t"],
+            "checks": checks,
+        }
+        with open(hist_path, "w") as f:
+            json.dump(hist, f, separators=(",", ":"))
+        notes.append("uptime 24h=%s%% 7d=%s%% over %d checks"
+                     % (hist["uptime_24h"], hist["uptime_7d"], len(checks)))
+    except Exception as e:
+        sys.stderr.write("could not update status file: %s\n" % e)
 
     # ---- report -------------------------------------------------------
     body = "%s\n\n%s" % (stamp, "\n".join(notes))

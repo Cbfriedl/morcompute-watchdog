@@ -125,6 +125,9 @@
     <div class="card"><span class="k">MOR per day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
     <div class="card"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
     <div class="card"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
+    <div class="card"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
+    <div class="card"><span class="k">Sessions</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
+    <div class="card"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
     <div class="card"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
     <div class="card"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
   </div>
@@ -132,8 +135,8 @@
   <div class="tbl">
     <h2>Active bids</h2>
     <table>
-      <thead><tr><th>Model ID</th><th>Model</th><th>MOR / day</th><th>~$ / day</th></tr></thead>
-      <tbody id="bids"><tr><td colspan="4" style="color:var(--ink-3)">loading…</td></tr></tbody>
+      <thead><tr><th>Model ID</th><th>Model</th><th>MOR / day</th><th>Sessions</th><th>~$ / day</th></tr></thead>
+      <tbody id="bids"><tr><td colspan="5" style="color:var(--ink-3)">loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -152,6 +155,12 @@ const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
 const MOR = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
 const RPCS = ["https://mainnet.base.org","https://1rpc.io/base","https://base.drpc.org"];
 const WARN_PCT = 30, ETH_MIN = 0.005;
+const SEL_PROVIDER_SESSIONS = "0x87bced7d";   // getProviderSessions(address,uint256,uint256)
+const SEL_GET_SESSION       = "0x39b240bd";   // getSession(bytes32)
+// Attributing sessions to individual bids means one call per session. Cap the
+// work so a busy provider does not hang the page; the total count is exact
+// either way, only the per-bid split is capped.
+const SESSION_ATTRIB_CAP = 150;
 // Headroom can never exceed the capital you put in from OUTSIDE. Re-staking
 // claimed earnings restores headroom but does not raise its ceiling: stake 1400
 // with 700 earned still leaves only 700 earnable. So the meter is measured
@@ -196,12 +205,14 @@ function setPill(el, cls, text){
 async function load(){
   const err = document.getElementById("err");
   try{
-    const [pRaw, actRaw, ethRaw, morRaw, bidRaw] = await Promise.all([
+    const [pRaw, actRaw, ethRaw, morRaw, bidRaw, sessRaw] = await Promise.all([
       call(DIAMOND, "0x55f21eb7"+pad(ADDR)),
       call(DIAMOND, "0x63ef175d"+pad(ADDR)),
       rpc("eth_getBalance",[ADDR,"latest"]),
       call(MOR, "0x70a08231"+pad(ADDR)),
-      call(DIAMOND, "0xaf5b77ca"+pad(ADDR)+(0).toString(16).padStart(64,"0")+(50).toString(16).padStart(64,"0"))
+      call(DIAMOND, "0xaf5b77ca"+pad(ADDR)+(0).toString(16).padStart(64,"0")+(50).toString(16).padStart(64,"0")),
+      call(DIAMOND, SEL_PROVIDER_SESSIONS+pad(ADDR)+(0).toString(16).padStart(64,"0")+(100000).toString(16).padStart(64,"0"))
+        .catch(()=>null)
     ]);
     err.style.display="none";
 
@@ -253,6 +264,16 @@ async function load(){
       eth >= ETH_MIN ? "ok" : "cr",
       eth >= ETH_MIN ? "gas ok" : "gas low");
 
+    // sessions
+    let sessionIds = [];
+    if (sessRaw) {
+      const sw = W(sessRaw), so = parseInt(sw[0],16)/32, sn = parseInt(sw[so],16);
+      sessionIds = Array.from({length:sn},(_,i)=>"0x"+sw[so+1+i]);
+    }
+    document.getElementById("sessions").textContent = sessRaw ? sessionIds.length : "—";
+    document.getElementById("sessions-sub").textContent =
+      sessRaw ? "total, all time" : "could not read";
+
     // bids
     const bw = W(bidRaw), off = parseInt(bw[0],16)/32, n = parseInt(bw[off],16);
     const ids = Array.from({length:n},(_,i)=>"0x"+bw[off+1+i]);
@@ -261,9 +282,20 @@ async function load(){
 
     const tb = document.getElementById("bids");
     if(!n){
-      tb.innerHTML = '<tr><td colspan="4" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="5" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
     } else {
       let firstBidAt = Infinity;
+      // map bidId -> session count (capped; see SESSION_ATTRIB_CAP)
+      const perBid = {};
+      const toScan = sessionIds.slice(-SESSION_ATTRIB_CAP);
+      const capped = sessionIds.length > toScan.length;
+      await Promise.all(toScan.map(async sid=>{
+        try{
+          const sw = W(await call(DIAMOND, SEL_GET_SESSION+sid.slice(2)));
+          const bid = "0x"+sw[2];
+          perBid[bid] = (perBid[bid]||0)+1;
+        }catch(e){ /* skip unreadable session */ }
+      }));
       const rows = await Promise.all(ids.map(async id=>{
         const r = W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
         const modelId = "0x"+r[1];
@@ -278,9 +310,11 @@ async function load(){
           const base = parseInt(m[0],16)/32;
           name = decodeStr(m, base + parseInt(m[base+4],16)/32) || "(unnamed)";
         }catch(e){ name = "(lookup failed)"; }
+        const sc = perBid[id] || 0;
         return `<tr><td class="num">${modelId.slice(0,14)}…</td>
                 <td>${name}</td>
                 <td class="num">${fmt(perDay,3)}</td>
+                <td class="num">${sc}${capped?"+":""}</td>
                 <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
       }));
       tb.innerHTML = rows.join("");
@@ -298,6 +332,12 @@ async function load(){
             days < 0.25
               ? "too early — " + fmt(days*24,1) + "h of data"
               : "over " + fmt(days,1) + "d since first bid";
+
+          const sPerDay = sessionIds.length / days;
+          document.getElementById("sessrate").textContent =
+            days < 0.25 ? "—" : fmt(sPerDay, sPerDay < 10 ? 2 : 1);
+          document.getElementById("sessrate-sub").textContent =
+            days < 0.25 ? "too early" : "over " + fmt(days,1) + "d since first bid";
         }
       }
     }
@@ -308,6 +348,27 @@ async function load(){
     err.style.display="block";
     err.textContent = "Could not read the chain: " + (e.message||e) +
       " — showing the last successful values. This page failing is NOT the same as your node failing.";
+  }
+}
+
+async function loadUptime(){
+  // Written by the GitHub Actions watchdog every 13 min. A browser cannot open a
+  // TCP socket to the node, so this is the only honest source of availability.
+  try{
+    const r = await fetch("status.json?cb="+Date.now());
+    if(!r.ok) throw new Error("no status file yet");
+    const d = await r.json();
+    const u = (d.uptime_24h != null) ? d.uptime_24h : d.uptime_7d;
+    document.getElementById("uptime").textContent = (u==null) ? "—" : fmt(u,2)+"%";
+    const el = document.getElementById("uptime");
+    el.style.color = (u==null) ? "" : (u >= 99 ? "var(--good)" : (u >= 95 ? "var(--warn)" : "var(--crit)"));
+    const span = d.first_check ? (Date.now()/1000 - d.first_check)/86400 : 0;
+    document.getElementById("uptime-sub").textContent =
+      d.checks_total + " probes · " + (span < 1 ? fmt(span*24,1)+"h" : fmt(span,1)+"d")
+      + (d.last_ok ? " · up now" : " · DOWN NOW");
+  }catch(e){
+    document.getElementById("uptime").textContent = "—";
+    document.getElementById("uptime-sub").textContent = "awaiting first probe";
   }
 }
 
@@ -328,7 +389,9 @@ async function loadPrice(){
 
 document.getElementById("refresh").addEventListener("click", load);
 loadPrice().then(load);
+loadUptime();
 setInterval(load, 60000);
+setInterval(loadUptime, 60000);
 setInterval(loadPrice, 300000);
 </script>
 </body>
