@@ -31,6 +31,18 @@ SEL_ACTIVE_MODEL_IDS = "0x3839d3dc"   # getActiveModelIds(uint256,uint256)
 SEL_MODEL_ACTIVE_BIDS = "0x8a683b6e"  # getModelActiveBids(bytes32,uint256,uint256)
 SEL_GET_BID = "0x91704e1e"            # getBid(bytes32)
 SEL_GET_MODEL = "0x21e7c498"          # getModel(bytes32)
+SEL_ACTIVE_PROVIDERS = "0xd5472642"   # getActiveProviders(uint256,uint256)
+SEL_PROVIDER_SESSIONS = "0x87bced7d"  # getProviderSessions(address,uint256,uint256)
+SEL_GET_SESSION = "0x39b240bd"        # getSession(bytes32)
+
+# Per-endpoint JSON-RPC batch ceilings, measured empirically 2026-08-17:
+#   mainnet.base.org  -> 10 ("maximum 10 calls" above that)
+#   base.drpc.org     -> 3  (free plan rejects larger)
+# Session scanning is thousands of calls, so the difference decides whether the
+# job finishes inside the Actions timeout.
+BATCH_FOR = {"mainnet.base.org": 10, "base.drpc.org": 3, "1rpc.io": 3}
+SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "7"))
+SESSION_CAP_PER_PROVIDER = int(os.environ.get("SESSION_CAP", "4000"))
 
 RPCS = [r.strip() for r in os.environ.get(
     "CENSUS_RPCS",
@@ -38,8 +50,19 @@ RPCS = [r.strip() for r in os.environ.get(
 ).split(",") if r.strip()]
 
 OUT = os.environ.get("CENSUS_FILE", "census.json")
-BATCH = 3          # dRPC free plan rejects batches larger than this
+BATCH = 3          # conservative default; see BATCH_FOR
 _rpc_i = [0]
+
+
+def batch_limit():
+    """Smallest ceiling across the endpoints in rotation — a batch has to be
+    acceptable to whichever endpoint happens to serve it."""
+    lim = 100
+    for u in RPCS:
+        for host, n in BATCH_FOR.items():
+            if host in u:
+                lim = min(lim, n)
+    return max(1, min(lim, 10))
 
 
 def rpc(batch):
@@ -86,6 +109,97 @@ def dec_str(w, base):
 def chunked(seq, n):
     for i in range(0, len(seq), n):
         yield seq[i:i + n]
+
+
+def sessions_by_model(log):
+    """7-day session counts per model.
+
+    getSession is one call per session and there are thousands, so this is the
+    expensive half of the census. It walks each provider's session list from the
+    newest backwards and stops at the cutoff.
+
+    Returns (counts_by_model, coverage_note).
+    """
+    B = batch_limit()
+    cutoff = int(time.time()) - SESSION_DAYS * 86400
+    counts, scanned, capped_provs = {}, 0, []
+
+    try:
+        w = W(rpc([call(SEL_ACTIVE_PROVIDERS + "%064x" % 0 + "%064x" % 500)])[0]["result"])
+        off = int(w[0], 16) // 32
+        n = int(w[off], 16)
+        provs = ["0x" + w[off + 1 + i][24:] for i in range(n)]
+    except Exception as e:
+        log("  cannot list providers: %s" % str(e)[:80])
+        return {}, "provider list unavailable"
+    log("active providers: %d" % len(provs))
+
+    bid_model = {}
+    for prov in provs:
+        # session ids, newest last
+        try:
+            sw = W(rpc([call(SEL_PROVIDER_SESSIONS + prov[2:].rjust(64, "0")
+                             + "%064x" % 0 + "%064x" % 100000)])[0]["result"])
+            so = int(sw[0], 16) // 32
+            sn = int(sw[so], 16)
+            ids = ["0x" + sw[so + 1 + i] for i in range(sn)]
+        except Exception:
+            continue
+        if not ids:
+            continue
+        take = ids[-SESSION_CAP_PER_PROVIDER:]
+        if len(take) < len(ids):
+            capped_provs.append(prov[:10])
+
+        # walk backwards; stop once a whole batch predates the cutoff
+        stop = False
+        idx = len(take)
+        while idx > 0 and not stop:
+            lo = max(0, idx - B)
+            ch = take[lo:idx]
+            idx = lo
+            try:
+                res = {x["id"]: x for x in rpc(
+                    [call(SEL_GET_SESSION + sid[2:], i) for i, sid in enumerate(ch)])}
+            except Exception:
+                continue
+            older = 0
+            for i, sid in enumerate(ch):
+                try:
+                    r = W(res[i]["result"])
+                    opened = int(r[7], 16)
+                    if opened < cutoff:
+                        older += 1
+                        continue
+                    bid = "0x" + r[2]
+                    bid_model.setdefault(bid, None)
+                    counts[bid] = counts.get(bid, 0) + 1
+                    scanned += 1
+                except Exception:
+                    pass
+            if older == len(ch):
+                stop = True
+
+    # bid -> model
+    need = [b for b in counts]
+    per_model = {}
+    for ch in [need[i:i + B] for i in range(0, len(need), B)]:
+        try:
+            res = {x["id"]: x for x in rpc(
+                [call(SEL_GET_BID + b[2:], i) for i, b in enumerate(ch)])}
+        except Exception:
+            continue
+        for i, b in enumerate(ch):
+            try:
+                mid = "0x" + W(res[i]["result"])[1]
+                per_model[mid] = per_model.get(mid, 0) + counts[b]
+            except Exception:
+                pass
+    note = "%d sessions in %dd across %d models" % (scanned, SESSION_DAYS, len(per_model))
+    if capped_provs:
+        note += "; capped at %d for %s" % (SESSION_CAP_PER_PROVIDER, ",".join(capped_provs))
+    log("  " + note)
+    return per_model, note
 
 
 def main():
@@ -173,6 +287,14 @@ def main():
     for b in live:
         per.setdefault(b["model"], []).append(b)
 
+    sess7, sess_note = ({}, "skipped")
+    if os.environ.get("CENSUS_SESSIONS", "1") == "1":
+        try:
+            sess7, sess_note = sessions_by_model(log)
+        except Exception as e:
+            log("session scan failed: %s" % str(e)[:120])
+            sess_note = "failed: %s" % str(e)[:80]
+
     rows = []
     for mid, bl in per.items():
         m = models.get(mid, {})
@@ -185,6 +307,7 @@ def main():
             "mn": pr[0], "md": round(statistics.median(pr), 4), "mx": pr[-1],
             "t": "|".join(m.get("tags") or []),
             "r": 1 if m.get("real") else 0,
+            "s7": sess7.get(mid, 0),
             "px": pr,
         })
     rows.sort(key=lambda r: -r["b"])
@@ -204,6 +327,9 @@ def main():
         "below10": sum(1 for v in allp if v < 10),
         "coverage": {"modelsScanned": len(by_model), "bidsResolved": len(bids),
                      "bidIdsFound": len(bid_ids)},
+        "sessions7d": sum(sess7.values()),
+        "sessionsNote": sess_note,
+        "sessionDays": SESSION_DAYS,
         "runSeconds": round(time.time() - t0),
         "models": rows,
     }
