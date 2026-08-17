@@ -11,6 +11,10 @@
     --surface:#fbfcfd; --raised:#fff; --ink:#0e1418; --ink-2:#4a5560; --ink-3:#7c8894;
     --rule:#dde4ea; --rule-2:#eef2f6;
     --good:#1baf7a; --warn:#eda100; --crit:#c0392f; --accent:#2a78d6;
+    /* card categories: blue = value you hold, green = value you earn, orange = time */
+    --c-hold-bg:#eff5fd; --c-hold-br:#cfe0f7; --c-hold-ink:#1d5fae;
+    --c-earn-bg:#ecf8f3; --c-earn-br:#c9e9dc; --c-earn-ink:#10805a;
+    --c-time-bg:#fdf1ec; --c-time-br:#f7dbcd; --c-time-ink:#b8501f;
     --shadow:0 1px 2px rgba(14,20,24,.05),0 8px 24px -14px rgba(14,20,24,.2);
   }
   @media (prefers-color-scheme:dark){
@@ -19,6 +23,12 @@
       --surface:#0f1418; --raised:#161d23; --ink:#eef3f7; --ink-2:#a5b2be; --ink-3:#6f7d8a;
       --rule:#232d36; --rule-2:#1b242b;
       --good:#199e70; --warn:#c98500; --crit:#e66767; --accent:#3987e5;
+    --c-hold-bg:#131f2c; --c-hold-br:#23384f; --c-hold-ink:#6aa9ee;
+    --c-earn-bg:#10231d; --c-earn-br:#1e4034; --c-earn-ink:#4fc79c;
+    --c-time-bg:#251811; --c-time-br:#46301f; --c-time-ink:#ef9163;
+      --c-hold-bg:#131f2c; --c-hold-br:#23384f; --c-hold-ink:#6aa9ee;
+      --c-earn-bg:#10231d; --c-earn-br:#1e4034; --c-earn-ink:#4fc79c;
+      --c-time-bg:#251811; --c-time-br:#46301f; --c-time-ink:#ef9163;
       --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
     }
   }
@@ -56,6 +66,12 @@
   .card .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:640}
   .card .v{font-size:23px;font-weight:680;letter-spacing:-.02em;line-height:1.2}
   .card .s{font-size:12px;color:var(--ink-3)}
+  .card.hold{background:var(--c-hold-bg);border-color:var(--c-hold-br)}
+  .card.hold .v{color:var(--c-hold-ink)}
+  .card.earn{background:var(--c-earn-bg);border-color:var(--c-earn-br)}
+  .card.earn .v{color:var(--c-earn-ink)}
+  .card.time{background:var(--c-time-bg);border-color:var(--c-time-br)}
+  .card.time .v{color:var(--c-time-ink)}
 
   .meterbox{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
     padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
@@ -120,16 +136,16 @@
   </div>
 
   <div class="grid">
-    <div class="card"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
-    <div class="card"><span class="k">Earned so far</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
-    <div class="card"><span class="k">MOR per day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
-    <div class="card"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
-    <div class="card"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
-    <div class="card"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
-    <div class="card"><span class="k">Sessions</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
-    <div class="card"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
-    <div class="card"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
-    <div class="card"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
+    <div class="card hold"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
+    <div class="card earn"><span class="k">Earned so far</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
+    <div class="card earn"><span class="k">MOR per day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
+    <div class="card earn"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
+    <div class="card time"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
+    <div class="card time"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
+    <div class="card earn"><span class="k">Sessions</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
+    <div class="card earn"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
+    <div class="card hold"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
+    <div class="card hold"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
   </div>
 
   <div class="tbl">
@@ -360,8 +376,7 @@ async function loadUptime(){
     const d = await r.json();
     const u = (d.uptime_24h != null) ? d.uptime_24h : d.uptime_7d;
     document.getElementById("uptime").textContent = (u==null) ? "—" : fmt(u,2)+"%";
-    const el = document.getElementById("uptime");
-    el.style.color = (u==null) ? "" : (u >= 99 ? "var(--good)" : (u >= 95 ? "var(--warn)" : "var(--crit)"));
+    // colour comes from the .time category; health is conveyed by the sub-label
     const span = d.first_check ? (Date.now()/1000 - d.first_check)/86400 : 0;
     document.getElementById("uptime-sub").textContent =
       d.checks_total + " probes · " + (span < 1 ? fmt(span*24,1)+"h" : fmt(span,1)+"d")
