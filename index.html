@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Morpheus Provider Status</title>
+<meta name="color-scheme" content="light dark">
+<style>
+  :root{
+    color-scheme: light;
+    --surface:#fbfcfd; --raised:#fff; --ink:#0e1418; --ink-2:#4a5560; --ink-3:#7c8894;
+    --rule:#dde4ea; --rule-2:#eef2f6;
+    --good:#1baf7a; --warn:#eda100; --crit:#c0392f; --accent:#2a78d6;
+    --shadow:0 1px 2px rgba(14,20,24,.05),0 8px 24px -14px rgba(14,20,24,.2);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --surface:#0f1418; --raised:#161d23; --ink:#eef3f7; --ink-2:#a5b2be; --ink-3:#6f7d8a;
+      --rule:#232d36; --rule-2:#1b242b;
+      --good:#199e70; --warn:#c98500; --crit:#e66767; --accent:#3987e5;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --surface:#0f1418; --raised:#161d23; --ink:#eef3f7; --ink-2:#a5b2be; --ink-3:#6f7d8a;
+    --rule:#232d36; --rule-2:#1b242b;
+    --good:#199e70; --warn:#c98500; --crit:#e66767; --accent:#3987e5;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--surface);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;-webkit-font-smoothing:antialiased;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .num{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:18px}
+  header{display:flex;flex-direction:column;gap:6px}
+  h1{margin:0;font-size:20px;letter-spacing:-.02em;font-weight:680}
+  .sub{font-size:12.5px;color:var(--ink-3)}
+  .sub .num{font-size:12.5px}
+
+  .statusbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    background:var(--raised);border:1px solid var(--rule);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:660;
+    padding:3px 10px;border-radius:20px;border:1px solid currentColor;letter-spacing:.02em}
+  .pill .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+  .ok{color:var(--good)} .wa{color:var(--warn)} .cr{color:var(--crit)} .mu{color:var(--ink-3)}
+
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}
+  .card{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
+    padding:13px 15px;display:flex;flex-direction:column;gap:3px;box-shadow:var(--shadow)}
+  .card .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:640}
+  .card .v{font-size:23px;font-weight:680;letter-spacing:-.02em;line-height:1.2}
+  .card .s{font-size:12px;color:var(--ink-3)}
+
+  .meterbox{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
+    padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+  .meterhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .meterhead .t{font-size:13px;font-weight:660}
+  .meterhead .n{font-size:13px;color:var(--ink-2)}
+  .track{height:12px;border-radius:8px;background:var(--rule-2);overflow:hidden;position:relative}
+  .fill{height:100%;border-radius:8px;transition:width .5s ease,background .3s ease}
+  .mnote{font-size:12px;color:var(--ink-3)}
+
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--rule-2)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:650}
+  tbody tr:last-child td{border-bottom:none}
+  .tbl{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
+    padding:6px 8px 4px;box-shadow:var(--shadow);overflow-x:auto}
+  .tbl h2{margin:8px 8px 4px;font-size:13px;font-weight:660}
+
+  footer{color:var(--ink-3);font-size:11.5px;text-align:center;line-height:1.7}
+  a{color:var(--accent)}
+  .err{background:var(--raised);border:1px solid var(--crit);border-left:3px solid var(--crit);
+    border-radius:10px;padding:12px 14px;color:var(--crit);font-size:13px;display:none}
+  button{font:inherit;font-size:12.5px;padding:5px 12px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--rule);background:var(--rule-2);color:var(--ink)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Morpheus Provider Status</h1>
+    <div class="sub">
+      <span class="num" id="addr">0x2f14…601b</span> ·
+      endpoint <span class="num" id="endpoint">—</span>
+    </div>
+  </header>
+
+  <div class="err" id="err"></div>
+
+  <div class="statusbar">
+    <span class="pill mu" id="p-active"><span class="d"></span>loading</span>
+    <span class="pill mu" id="p-bids"><span class="d"></span>bids</span>
+    <span class="pill mu" id="p-gas"><span class="d"></span>gas</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span class="sub num" id="updated">—</span>
+      <button id="refresh">Refresh</button>
+    </span>
+  </div>
+
+  <div class="meterbox">
+    <div class="meterhead">
+      <span class="t">Headroom — how much you can still earn this year</span>
+      <span class="n num" id="hr-pct">—</span>
+    </div>
+    <div class="track"><div class="fill" id="hr-fill" style="width:0%;background:var(--ink-3)"></div></div>
+    <div class="mnote" id="hr-note">
+      At zero the network pays you nothing, silently, until your anniversary.
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
+    <div class="card"><span class="k">Earned this year</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
+    <div class="card"><span class="k">Headroom left</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
+    <div class="card"><span class="k">Anniversary</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">resets the cap</span></div>
+    <div class="card"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
+    <div class="card"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
+  </div>
+
+  <div class="tbl">
+    <h2>Active bids</h2>
+    <table>
+      <thead><tr><th>Model ID</th><th>MOR / day</th><th>~$ / day</th></tr></thead>
+      <tbody id="bids"><tr><td colspan="3" style="color:var(--ink-3)">loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <footer>
+    Reads Base mainnet directly from your browser — no server, no key, nothing stored.<br>
+    Diamond <span class="num">0x6aBE…3030a</span> ·
+    auto-refresh every 60s ·
+    <a href="https://github.com/Cbfriedl/morcompute-watchdog">watchdog repo</a><br>
+    <span id="pricenote"></span>
+  </footer>
+</div>
+
+<script>
+const ADDR = "0x2f144F3b192A2d2D2384de7007EE2cAd943C601b";
+const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
+const MOR = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
+const RPCS = ["https://mainnet.base.org","https://1rpc.io/base","https://base.drpc.org"];
+const WARN_PCT = 30, ETH_MIN = 0.005;
+let morUsd = null;
+
+const pad = a => a.toLowerCase().replace("0x","").padStart(64,"0");
+const W = h => { h = h.startsWith("0x") ? h.slice(2) : h;
+  return Array.from({length: Math.ceil(h.length/64)}, (_,i)=>h.slice(i*64,(i+1)*64)); };
+
+async function rpc(method, params){
+  let last;
+  for (const url of RPCS){
+    try{
+      const r = await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message||"rpc error");
+      return j.result;
+    }catch(e){ last = e; }
+  }
+  throw last || new Error("all RPCs failed");
+}
+const call = (to,data) => rpc("eth_call",[{to,data},"latest"]);
+
+function decodeStr(w, base){
+  const n = parseInt(w[base],16); if(!n) return "";
+  const hex = w.slice(base+1, base+1+Math.ceil(n/32)).join("").slice(0,n*2);
+  let s=""; for(let i=0;i<hex.length;i+=2) s+=String.fromCharCode(parseInt(hex.substr(i,2),16));
+  return s;
+}
+const fmt = (n,d=2) => n.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+
+function setPill(el, cls, text){
+  el.className = "pill " + cls;
+  el.innerHTML = '<span class="d"></span>' + text;
+}
+
+async function load(){
+  const err = document.getElementById("err");
+  try{
+    const [pRaw, actRaw, ethRaw, morRaw, bidRaw] = await Promise.all([
+      call(DIAMOND, "0x55f21eb7"+pad(ADDR)),
+      call(DIAMOND, "0x63ef175d"+pad(ADDR)),
+      rpc("eth_getBalance",[ADDR,"latest"]),
+      call(MOR, "0x70a08231"+pad(ADDR)),
+      call(DIAMOND, "0xaf5b77ca"+pad(ADDR)+(0).toString(16).padStart(64,"0")+(50).toString(16).padStart(64,"0"))
+    ]);
+    err.style.display="none";
+
+    const w = W(pRaw), b = parseInt(w[0],16)/32;
+    const endpoint = decodeStr(w, b + parseInt(w[b],16)/32);
+    const stake   = Number(BigInt("0x"+w[b+1]))/1e18;
+    const periodEnd = parseInt(w[b+3],16);
+    const earned  = Number(BigInt("0x"+w[b+4]))/1e18;
+    const deleted = parseInt(w[b+5],16) === 1;
+    const active  = parseInt(actRaw,16) === 1;
+    const eth     = Number(BigInt(ethRaw))/1e18;
+    const morBal  = Number(BigInt("0x"+W(morRaw)[0]))/1e18;
+
+    const headroom = stake - earned;
+    const pct = stake ? 100*headroom/stake : 0;
+
+    document.getElementById("endpoint").textContent = endpoint || "—";
+    document.getElementById("stake").textContent   = fmt(stake);
+    document.getElementById("earned").textContent  = fmt(earned);
+    document.getElementById("earned-pct").textContent =
+      stake ? fmt(100*earned/stake,1)+"% of your cap" : "MOR";
+    document.getElementById("headroom").textContent = fmt(headroom);
+    document.getElementById("eth").textContent = fmt(eth,5);
+    document.getElementById("mor").textContent = fmt(morBal);
+    document.getElementById("mor-usd").textContent =
+      morUsd ? "≈ $"+fmt(morBal*morUsd) : "unstaked";
+
+    const days = Math.max(0,(periodEnd*1000 - Date.now())/86400000);
+    document.getElementById("anniv").textContent = Math.floor(days)+"d";
+    document.getElementById("anniv-date").textContent =
+      new Date(periodEnd*1000).toISOString().slice(0,10);
+
+    const fill = document.getElementById("hr-fill");
+    fill.style.width = Math.max(0,Math.min(100,pct))+"%";
+    fill.style.background = pct < WARN_PCT ? "var(--crit)" : (pct < 60 ? "var(--warn)" : "var(--good)");
+    document.getElementById("hr-pct").textContent =
+      fmt(headroom)+" / "+fmt(stake)+" MOR  ("+fmt(pct,1)+"%)";
+    document.getElementById("hr-note").textContent = pct < WARN_PCT
+      ? "Below "+WARN_PCT+"% — re-stake soon. At zero you keep serving and keep paying costs while earning nothing."
+      : "At zero the network pays you nothing, silently, until your anniversary.";
+
+    setPill(document.getElementById("p-active"),
+      (active && !deleted) ? "ok" : "cr",
+      (active && !deleted) ? "provider active" : "NOT ACTIVE");
+    setPill(document.getElementById("p-gas"),
+      eth >= ETH_MIN ? "ok" : "cr",
+      eth >= ETH_MIN ? "gas ok" : "gas low");
+
+    // bids
+    const bw = W(bidRaw), off = parseInt(bw[0],16)/32, n = parseInt(bw[off],16);
+    const ids = Array.from({length:n},(_,i)=>"0x"+bw[off+1+i]);
+    setPill(document.getElementById("p-bids"), n ? "ok" : "wa",
+      n ? n+" active bid"+(n>1?"s":"") : "no bids — not earning");
+
+    const tb = document.getElementById("bids");
+    if(!n){
+      tb.innerHTML = '<tr><td colspan="3" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
+    } else {
+      const rows = await Promise.all(ids.map(async id=>{
+        const r = W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
+        const pps = Number(BigInt("0x"+r[2]));
+        const perDay = pps*86400/1e18;
+        return `<tr><td class="num">${"0x"+r[1].slice(0,12)}…</td>
+                <td class="num">${fmt(perDay,3)}</td>
+                <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
+      }));
+      tb.innerHTML = rows.join("");
+    }
+
+    document.getElementById("updated").textContent =
+      "updated " + new Date().toLocaleTimeString();
+  }catch(e){
+    err.style.display="block";
+    err.textContent = "Could not read the chain: " + (e.message||e) +
+      " — showing the last successful values. This page failing is NOT the same as your node failing.";
+  }
+}
+
+async function loadPrice(){
+  try{
+    const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/"+MOR);
+    const j = await r.json();
+    const ps = (j.pairs||[]).filter(p=>(p.baseToken?.symbol||"").toUpperCase()==="MOR")
+      .sort((a,b)=>(b.liquidity?.usd||0)-(a.liquidity?.usd||0));
+    if(ps.length){
+      morUsd = parseFloat(ps[0].priceUsd);
+      document.getElementById("pricenote").textContent =
+        "MOR ≈ $"+morUsd.toFixed(4)+" ("+ps[0].dexId+", liquidity $"+
+        Math.round(ps[0].liquidity?.usd||0).toLocaleString()+")";
+    }
+  }catch(e){ /* price is decoration; never block the page on it */ }
+}
+
+document.getElementById("refresh").addEventListener("click", load);
+loadPrice().then(load);
+setInterval(load, 60000);
+setInterval(loadPrice, 300000);
+</script>
+</body>
+</html>

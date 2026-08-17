@@ -49,3 +49,19 @@ publishing them here costs no additional exposure.
   after 60 days of repository inactivity**. Budget for both.
 - This is the *external* layer only. The push layer (thresholds, container
   health, model health) runs on the box itself.
+
+## Dashboard
+
+A live status page is published at **https://cbfriedl.github.io/morcompute-watchdog/**
+
+It reads Base mainnet **directly from your browser** — no server, no backend, no
+key. It shows stake, headroom against the annual cap, wallet gas, active bids and
+their prices, and the anniversary countdown.
+
+**It deliberately does not show the OpenRouter balance.** A static public page
+cannot hold a secret, and the OpenRouter key is required to read it. That figure
+is checked every 10 minutes by the on-box monitor instead, which alerts to ntfy
+if it drops below threshold.
+
+The dashboard failing is **not** the same as the node failing — it is a viewer,
+not a monitor. Alerting is what tells you something is wrong.
