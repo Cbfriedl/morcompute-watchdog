@@ -122,6 +122,7 @@
   <div class="grid">
     <div class="card"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
     <div class="card"><span class="k">Earned so far</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
+    <div class="card"><span class="k">MOR per day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
     <div class="card"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
     <div class="card"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
     <div class="card"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
@@ -262,11 +263,14 @@ async function load(){
     if(!n){
       tb.innerHTML = '<tr><td colspan="4" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
     } else {
+      let firstBidAt = Infinity;
       const rows = await Promise.all(ids.map(async id=>{
         const r = W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
         const modelId = "0x"+r[1];
         const pps = Number(BigInt("0x"+r[2]));
         const perDay = pps*86400/1e18;
+        const createdAt = parseInt(r[4],16);
+        if (createdAt) firstBidAt = Math.min(firstBidAt, createdAt);
         // getModel(bytes32) -> resolve the human-readable name for this listing
         let name = "—";
         try{
@@ -280,6 +284,22 @@ async function load(){
                 <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
       }));
       tb.innerHTML = rows.join("");
+
+      // Earnings rate since the first bid went live. Before any bid existed the
+      // node could not sell, so dividing lifetime earnings by provider age would
+      // understate the real rate. The clock starts at the earliest active bid.
+      if (isFinite(firstBidAt)) {
+        const days = (Date.now()/1000 - firstBidAt) / 86400;
+        if (days > 0) {
+          const perDay = earned / days;
+          document.getElementById("rate").textContent =
+            days < 0.25 ? "—" : fmt(perDay, perDay < 10 ? 2 : 1);
+          document.getElementById("rate-sub").textContent =
+            days < 0.25
+              ? "too early — " + fmt(days*24,1) + "h of data"
+              : "over " + fmt(days,1) + "d since first bid";
+        }
+      }
     }
 
     document.getElementById("updated").textContent =
