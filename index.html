@@ -109,20 +109,21 @@
 
   <div class="meterbox">
     <div class="meterhead">
-      <span class="t">Headroom — how much you can still earn this year</span>
+      <span class="t">Headroom — how much you can still earn before you must re-stake</span>
       <span class="n num" id="hr-pct">—</span>
     </div>
     <div class="track"><div class="fill" id="hr-fill" style="width:0%;background:var(--ink-3)"></div></div>
     <div class="mnote" id="hr-note">
-      At zero the network pays you nothing, silently, until your anniversary.
+      At zero you keep serving and keep paying costs while earning nothing — until
+      you claim and re-stake.
     </div>
   </div>
 
   <div class="grid">
     <div class="card"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
-    <div class="card"><span class="k">Earned this year</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
-    <div class="card"><span class="k">Headroom left</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
-    <div class="card"><span class="k">Anniversary</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">resets the cap</span></div>
+    <div class="card"><span class="k">Earned so far</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
+    <div class="card"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
+    <div class="card"><span class="k">Cap period ends</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
     <div class="card"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
     <div class="card"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
   </div>
@@ -130,8 +131,8 @@
   <div class="tbl">
     <h2>Active bids</h2>
     <table>
-      <thead><tr><th>Model ID</th><th>MOR / day</th><th>~$ / day</th></tr></thead>
-      <tbody id="bids"><tr><td colspan="3" style="color:var(--ink-3)">loading…</td></tr></tbody>
+      <thead><tr><th>Model ID</th><th>Model</th><th>MOR / day</th><th>~$ / day</th></tr></thead>
+      <tbody id="bids"><tr><td colspan="4" style="color:var(--ink-3)">loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -150,6 +151,13 @@ const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
 const MOR = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
 const RPCS = ["https://mainnet.base.org","https://1rpc.io/base","https://base.drpc.org"];
 const WARN_PCT = 30, ETH_MIN = 0.005;
+// Headroom can never exceed the capital you put in from OUTSIDE. Re-staking
+// claimed earnings restores headroom but does not raise its ceiling: stake 1400
+// with 700 earned still leaves only 700 earnable. So the meter is measured
+// against contributed capital, NOT against current stake — otherwise a growing
+// stake would make a full tank look half empty.
+// UPDATE THIS whenever new (non-claimed) MOR is added to the stake.
+const EXTERNAL_STAKE = 700;
 let morUsd = null;
 
 const pad = a => a.toLowerCase().replace("0x","").padStart(64,"0");
@@ -207,13 +215,15 @@ async function load(){
     const morBal  = Number(BigInt("0x"+W(morRaw)[0]))/1e18;
 
     const headroom = stake - earned;
-    const pct = stake ? 100*headroom/stake : 0;
+    // denominator is contributed capital, not current stake — see EXTERNAL_STAKE
+    const capacity = Math.max(EXTERNAL_STAKE, 0.000001);
+    const pct = 100*headroom/capacity;
 
     document.getElementById("endpoint").textContent = endpoint || "—";
     document.getElementById("stake").textContent   = fmt(stake);
     document.getElementById("earned").textContent  = fmt(earned);
     document.getElementById("earned-pct").textContent =
-      stake ? fmt(100*earned/stake,1)+"% of your cap" : "MOR";
+      "MOR total";
     document.getElementById("headroom").textContent = fmt(headroom);
     document.getElementById("eth").textContent = fmt(eth,5);
     document.getElementById("mor").textContent = fmt(morBal);
@@ -229,10 +239,11 @@ async function load(){
     fill.style.width = Math.max(0,Math.min(100,pct))+"%";
     fill.style.background = pct < WARN_PCT ? "var(--crit)" : (pct < 60 ? "var(--warn)" : "var(--good)");
     document.getElementById("hr-pct").textContent =
-      fmt(headroom)+" / "+fmt(stake)+" MOR  ("+fmt(pct,1)+"%)";
+      fmt(headroom)+" / "+fmt(capacity)+" MOR  ("+fmt(pct,1)+"%)";
     document.getElementById("hr-note").textContent = pct < WARN_PCT
-      ? "Below "+WARN_PCT+"% — re-stake soon. At zero you keep serving and keep paying costs while earning nothing."
-      : "At zero the network pays you nothing, silently, until your anniversary.";
+      ? "Below "+WARN_PCT+"% — claim and re-stake soon. At zero you keep serving and keep paying costs while earning nothing."
+      : "Measured against "+fmt(EXTERNAL_STAKE,0)+" MOR of capital you contributed. "
+        + "Re-staking earnings restores this meter; only new outside MOR raises its ceiling.";
 
     setPill(document.getElementById("p-active"),
       (active && !deleted) ? "ok" : "cr",
@@ -249,13 +260,22 @@ async function load(){
 
     const tb = document.getElementById("bids");
     if(!n){
-      tb.innerHTML = '<tr><td colspan="3" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="4" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
     } else {
       const rows = await Promise.all(ids.map(async id=>{
         const r = W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
+        const modelId = "0x"+r[1];
         const pps = Number(BigInt("0x"+r[2]));
         const perDay = pps*86400/1e18;
-        return `<tr><td class="num">${"0x"+r[1].slice(0,12)}…</td>
+        // getModel(bytes32) -> resolve the human-readable name for this listing
+        let name = "—";
+        try{
+          const m = W(await call(DIAMOND,"0x21e7c498"+r[1]));
+          const base = parseInt(m[0],16)/32;
+          name = decodeStr(m, base + parseInt(m[base+4],16)/32) || "(unnamed)";
+        }catch(e){ name = "(lookup failed)"; }
+        return `<tr><td class="num">${modelId.slice(0,14)}…</td>
+                <td>${name}</td>
                 <td class="num">${fmt(perDay,3)}</td>
                 <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
       }));
