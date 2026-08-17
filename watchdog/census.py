@@ -34,6 +34,9 @@ SEL_GET_MODEL = "0x21e7c498"          # getModel(bytes32)
 SEL_ACTIVE_PROVIDERS = "0xd5472642"   # getActiveProviders(uint256,uint256)
 SEL_PROVIDER_SESSIONS = "0x87bced7d"  # getProviderSessions(address,uint256,uint256)
 SEL_GET_SESSION = "0x39b240bd"        # getSession(bytes32)
+SEL_GET_PROVIDER = "0x55f21eb7"       # getProvider(address)
+HIST = os.environ.get("CENSUS_HISTORY", "census-history.json")
+EARNER_WINDOW_DAYS = int(os.environ.get("EARNER_WINDOW_DAYS", "10"))
 
 # Per-endpoint JSON-RPC batch ceilings, measured empirically 2026-08-17:
 #   mainnet.base.org  -> 10 ("maximum 10 calls" above that)
@@ -202,6 +205,84 @@ def sessions_by_model(log):
     return per_model, note
 
 
+def provider_snapshot(log):
+    """stake / earned / headroom for every active provider.
+
+    Headroom is stake - limitPeriodEarned. At zero a provider keeps serving and
+    keeps paying its upstream bill while earning nothing, so 'zero headroom' is
+    the single most useful liveness signal about a competitor.
+    """
+    B = batch_limit()
+    try:
+        w = W(rpc([call(SEL_ACTIVE_PROVIDERS + "%064x" % 0 + "%064x" % 500)])[0]["result"])
+        off = int(w[0], 16) // 32
+        n = int(w[off], 16)
+        provs = ["0x" + w[off + 1 + i][24:] for i in range(n)]
+    except Exception as e:
+        log("  provider list failed: %s" % str(e)[:80])
+        return []
+    out = []
+    for ch in chunked(provs, B):
+        try:
+            res = {x["id"]: x for x in rpc(
+                [call(SEL_GET_PROVIDER + a[2:].rjust(64, "0"), i) for i, a in enumerate(ch)])}
+        except Exception:
+            continue
+        for i, a in enumerate(ch):
+            try:
+                pw = W(res[i]["result"])
+                b = int(pw[0], 16) // 32
+                stake = int(pw[b + 1], 16) / 1e18
+                earned = int(pw[b + 4], 16) / 1e18
+                out.append({
+                    "a": a,
+                    "stake": round(stake, 4),
+                    "earned": round(earned, 4),
+                    "head": round(stake - earned, 4),
+                    "pct": round(100 * earned / stake, 2) if stake else 0.0,
+                    "deleted": int(pw[b + 5], 16) == 1,
+                })
+            except Exception:
+                pass
+    log("provider snapshot: %d" % len(out))
+    return out
+
+
+def earner_count(providers, log):
+    """How many addresses actually earned over the trailing window.
+
+    limitPeriodEarned only moves when a provider is paid, so comparing today's
+    value against a stored snapshot gives a true earner count. Needs history,
+    so the first few runs report None rather than guessing.
+    """
+    today = {p["a"]: p["earned"] for p in providers}
+    try:
+        with open(HIST) as f:
+            hist = json.load(f)
+    except Exception:
+        hist = {"snapshots": []}
+    snaps = hist.get("snapshots") or []
+    now = int(time.time())
+    snaps.append({"t": now, "earned": today})
+    snaps = [s for s in snaps if now - s["t"] <= 45 * 86400][-60:]
+    hist["snapshots"] = snaps
+    with open(HIST, "w") as f:
+        json.dump(hist, f, separators=(",", ":"))
+
+    target = now - EARNER_WINDOW_DAYS * 86400
+    older = [s for s in snaps if s["t"] <= target]
+    if not older:
+        span = round((now - snaps[0]["t"]) / 86400.0, 1) if snaps else 0
+        log("  earner count: no snapshot %dd old yet (have %.1fd)"
+            % (EARNER_WINDOW_DAYS, span))
+        return None, span
+    base = older[-1]
+    n = sum(1 for a, e in today.items()
+            if e > base["earned"].get(a, 0) + 1e-9)
+    log("  earners in %dd: %d" % (EARNER_WINDOW_DAYS, n))
+    return n, round((now - base["t"]) / 86400.0, 1)
+
+
 def main():
     t0 = time.time()
     log = lambda m: print(m, flush=True)
@@ -295,6 +376,15 @@ def main():
             log("session scan failed: %s" % str(e)[:120])
             sess_note = "failed: %s" % str(e)[:80]
 
+    providers_snap = provider_snapshot(log)
+    zero_head = sum(1 for p in providers_snap
+                    if not p["deleted"] and p["head"] <= 0.0001)
+    earners, earner_span = earner_count(providers_snap, log)
+
+    # provider addresses per model, so the dashboard can filter models by
+    # whether anyone bidding on them still has headroom to earn
+    head_by = {p["a"]: p["head"] for p in providers_snap}
+
     rows = []
     for mid, bl in per.items():
         m = models.get(mid, {})
@@ -309,6 +399,10 @@ def main():
             "r": 1 if m.get("real") else 0,
             "s7": sess7.get(mid, 0),
             "px": pr,
+            "pv": sorted(([x["provider"], round(x["pps"] * 86400 / 1e18, 4)]
+                          for x in bl), key=lambda y: -y[1]),
+            # live = at least one bidder can still be paid
+            "live": 1 if any(head_by.get(x["provider"], 0) > 0.0001 for x in bl) else 0,
         })
     rows.sort(key=lambda r: -r["b"])
 
@@ -327,6 +421,13 @@ def main():
         "below10": sum(1 for v in allp if v < 10),
         "coverage": {"modelsScanned": len(by_model), "bidsResolved": len(bids),
                      "bidIdsFound": len(bid_ids)},
+        "registeredModels": len(model_ids),
+        "activeProviders": len([p for p in providers_snap if not p["deleted"]]),
+        "zeroHeadroom": zero_head,
+        "earners10d": earners,
+        "earnerWindowDays": EARNER_WINDOW_DAYS,
+        "earnerSpanDays": earner_span,
+        "providers": providers_snap,
         "sessions7d": sum(sess7.values()),
         "sessionsNote": sess_note,
         "sessionDays": SESSION_DAYS,
