@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Morpheus Provider Status</title>
+<title>Morpheus Provider Metrics</title>
 <meta name="color-scheme" content="light dark">
 <style>
   :root{
@@ -49,6 +49,12 @@
   .num{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
   .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:18px}
   header{display:flex;flex-direction:column;gap:6px}
+  .masthead{flex-direction:row;align-items:center;gap:14px}
+  .brand{width:48px;height:48px;border-radius:12px;flex:none;object-fit:cover;
+    border:1px solid var(--rule)}
+  .brandline{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:680}
+  @media (max-width:420px){ .brand{width:38px;height:38px} }
   h1{margin:0;font-size:20px;letter-spacing:-.02em;font-weight:680}
   .sub{font-size:12.5px;color:var(--ink-3)}
   .sub .num{font-size:12.5px}
@@ -98,16 +104,28 @@
   button{font:inherit;font-size:12.5px;padding:5px 12px;border-radius:8px;cursor:pointer;
     border:1px solid var(--rule);background:var(--rule-2);color:var(--ink)}
   button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px}
+  .toolbar input[type=search]{font:inherit;font-size:12.5px;padding:5px 9px;border-radius:8px;
+    border:1px solid var(--rule);background:var(--surface);color:var(--ink);min-width:150px}
+  .chkl{display:inline-flex;align-items:center;gap:5px;color:var(--ink-2);cursor:pointer}
+  .selcount{color:var(--ink-3)}
+  #mktable thead th{cursor:pointer;user-select:none;white-space:nowrap}
+  .pill-live{color:var(--good);font-weight:660}
+  .pill-dead{color:var(--crit);font-weight:660}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>Morpheus Provider Status</h1>
-    <div class="sub">
-      <span class="num" id="addr">0x2f14…601b</span> ·
-      endpoint <span class="num" id="endpoint">—</span>
+  <header class="masthead">
+    <img src="assets/morfinance.jpg" alt="Morpheus Finance" class="brand">
+    <div>
+      <div class="brandline">Morpheus Finance</div>
+      <h1>Morpheus Provider Metrics</h1>
+      <div class="sub">
+        <span class="num" id="addr">0x2f14…601b</span> ·
+        endpoint <span class="num" id="endpoint">—</span>
+      </div>
     </div>
   </header>
 
@@ -148,11 +166,39 @@
     <div class="card hold"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
   </div>
 
+  <div class="grid" id="marketcards">
+    <div class="card time"><span class="k">Registered models</span><span class="v num" id="m-models">—</span><span class="s">on-chain, network wide</span></div>
+    <div class="card earn"><span class="k">Earners, 10d</span><span class="v num" id="m-earners">—</span><span class="s" id="m-earners-sub">addresses actually paid</span></div>
+    <div class="card hold"><span class="k">Zero headroom</span><span class="v num" id="m-zero">—</span><span class="s" id="m-zero-sub">providers earning nothing</span></div>
+  </div>
+
   <div class="tbl">
     <h2>Active bids</h2>
     <table>
       <thead><tr><th>Model ID</th><th>Model</th><th>MOR / day</th><th>Sessions</th><th>~$ / day</th></tr></thead>
       <tbody id="bids"><tr><td colspan="5" style="color:var(--ink-3)">loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="tbl" id="marketwrap" style="display:none">
+    <h2 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>Bids by model</span>
+      <span style="font-weight:400;font-size:11.5px;color:var(--ink-3)" id="m-asof"></span>
+    </h2>
+    <div class="toolbar" style="padding:0 8px 8px">
+      <input type="search" id="mkfilter" placeholder="filter model or tag…" aria-label="Filter models">
+      <label class="chkl"><input type="radio" name="hd" value="all" checked> all</label>
+      <label class="chkl"><input type="radio" name="hd" value="live"> only live (a bidder has headroom)</label>
+      <label class="chkl"><input type="radio" name="hd" value="dead"> only stalled (all bidders capped)</label>
+      <span class="selcount" id="mkcount"></span>
+    </div>
+    <table id="mktable">
+      <thead><tr>
+        <th data-k="n">Model</th><th data-k="b">Bids</th><th data-k="p">Providers</th>
+        <th data-k="s7">Sessions 7d</th><th data-k="mn">Min</th>
+        <th data-k="md">Median</th><th data-k="mx">Max</th><th data-k="live">Live</th>
+      </tr></thead>
+      <tbody id="mkbody"></tbody>
     </table>
   </div>
 
@@ -387,6 +433,79 @@ async function loadUptime(){
   }
 }
 
+/* ---------- daily census (written by GitHub Actions) ---------- */
+let CENSUS = null, mkSort = "b", mkDir = -1;
+
+async function loadCensus(){
+  try{
+    const r = await fetch("census.json?cb="+Date.now());
+    if(!r.ok) throw new Error("no census yet");
+    CENSUS = await r.json();
+  }catch(e){
+    document.getElementById("m-asof") &&
+      (document.getElementById("m-asof").textContent = "census not published yet");
+    return;
+  }
+  const C = CENSUS;
+  document.getElementById("m-models").textContent = C.registeredModels ?? "—";
+  document.getElementById("m-earners").textContent =
+    (C.earners10d === null || C.earners10d === undefined) ? "—" : C.earners10d;
+  document.getElementById("m-earners-sub").textContent =
+    (C.earners10d === null || C.earners10d === undefined)
+      ? "needs " + (C.earnerWindowDays||10) + "d of history (have " + (C.earnerSpanDays||0) + "d)"
+      : "of " + C.activeProviders + " active, over " + (C.earnerSpanDays||C.earnerWindowDays) + "d";
+  document.getElementById("m-zero").textContent = C.zeroHeadroom ?? "—";
+  document.getElementById("m-zero-sub").textContent =
+    C.activeProviders ? "of " + C.activeProviders + " active providers" : "providers earning nothing";
+  document.getElementById("m-asof").textContent =
+    "census " + (C.asOf||"").slice(0,16).replace("T"," ") + " UTC · "
+    + C.totalBids + " bids · " + C.providers?.length + " providers";
+  document.getElementById("marketwrap").style.display = "";
+  renderMarket();
+}
+
+function renderMarket(){
+  if(!CENSUS) return;
+  const q = (document.getElementById("mkfilter").value||"").toLowerCase().trim();
+  const mode = document.querySelector('input[name=hd]:checked').value;
+  let rows = CENSUS.models || [];
+  if(q) rows = rows.filter(m => m.n.toLowerCase().includes(q) || (m.t||"").toLowerCase().includes(q));
+  if(mode==="live") rows = rows.filter(m => m.live === 1);
+  if(mode==="dead") rows = rows.filter(m => m.live === 0);
+  rows = rows.slice().sort((a,b)=>{
+    let x=a[mkSort], y=b[mkSort];
+    if(typeof x === "string") return mkDir * x.localeCompare(y);
+    if(x===undefined) x=-1; if(y===undefined) y=-1;
+    return mkDir * (x-y);
+  });
+  document.getElementById("mkcount").textContent =
+    rows.length + " of " + (CENSUS.models||[]).length + " models";
+  document.getElementById("mkbody").innerHTML = rows.slice(0,400).map(m=>`
+    <tr>
+      <td>${m.n}</td>
+      <td class="num">${m.b}</td>
+      <td class="num">${m.p}</td>
+      <td class="num">${m.s7 ?? "—"}</td>
+      <td class="num">${m.mn.toFixed(3)}</td>
+      <td class="num">${m.md.toFixed(3)}</td>
+      <td class="num">${m.mx.toFixed(3)}</td>
+      <td class="${m.live?'pill-live':'pill-dead'}">${m.live?'live':'stalled'}</td>
+    </tr>`).join("")
+    + (rows.length>400 ? `<tr><td colspan="8" style="color:var(--ink-3)">…${rows.length-400} more, narrow the filter</td></tr>` : "");
+}
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  const f=document.getElementById("mkfilter"); if(f) f.addEventListener("input", renderMarket);
+  document.querySelectorAll('input[name=hd]').forEach(r=>r.addEventListener("change", renderMarket));
+  document.querySelectorAll('#mktable thead th[data-k]').forEach(th=>{
+    th.addEventListener("click", ()=>{
+      const k=th.dataset.k;
+      if(k===mkSort) mkDir=-mkDir; else { mkSort=k; mkDir=(k==="n")?1:-1; }
+      renderMarket();
+    });
+  });
+});
+
 async function loadPrice(){
   try{
     const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/"+MOR);
@@ -405,6 +524,7 @@ async function loadPrice(){
 document.getElementById("refresh").addEventListener("click", load);
 loadPrice().then(load);
 loadUptime();
+loadCensus();
 setInterval(load, 60000);
 setInterval(loadUptime, 60000);
 setInterval(loadPrice, 300000);
