@@ -1,0 +1,57 @@
+# Deploy to the public repo as .github/workflows/census.yml
+#
+# Daily full census of the Morpheus bid market, straight from chain. Writes
+# census.json, which the dashboard reads. No secrets: everything it touches is
+# public chain state.
+#
+# Runs long (10-30 min) because dRPC's free plan caps JSON-RPC batches at 3 and
+# throttles under load. Public repos get unlimited Actions minutes, so the cost
+# is wall-clock only.
+
+name: Daily market census
+
+on:
+  schedule:
+    # 06:17 UTC — deliberately off the hour. GitHub queues a flood of jobs at
+    # :00 and delays them; an odd minute gets picked up sooner.
+    - cron: "17 6 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: census
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run census
+        id: census
+        continue-on-error: true      # a partial run still tells us something
+        env:
+          CENSUS_FILE: census.json
+        run: python3 watchdog/census.py
+
+      - name: Commit census
+        run: |
+          git config user.name  "morcompute-watchdog"
+          git config user.email "watchdog@users.noreply.github.com"
+          git add census.json
+          git diff --staged --quiet || git commit -m "market census $(date -u +%F)"
+          git pull --rebase --autostash origin main || true
+          git push origin main
+
+      # Surface a partial census as a red run rather than letting it pass
+      # quietly — stale or truncated market data is what caused the original
+      # "2 active bids" error this whole job exists to prevent.
+      - name: Flag partial census
+        if: steps.census.outcome == 'failure'
+        run: |
+          echo "Census returned non-zero — coverage was below 90%."
+          exit 1
