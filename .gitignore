@@ -1,0 +1,8 @@
+
+# bulk raw caches — regenerable, too big to commit
+warmstart/
+
+# raw all-time session cache built by research/foundation/history_build.py.
+# ~40 MB of chain reads, regenerable, and history.db is the committed product.
+histcache/
+__pycache__/
