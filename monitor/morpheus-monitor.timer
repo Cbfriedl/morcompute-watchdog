@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the Morpheus provider monitor every 10 minutes
+Requires=morpheus-monitor.service
+
+[Timer]
+# First run shortly after boot, then every 10 minutes.
+OnBootSec=3min
+OnUnitActiveSec=10min
+# Spread load so every poll does not land exactly on the minute boundary.
+RandomizedDelaySec=45
+# If the box was asleep/off, run once on resume rather than replaying misses.
+Persistent=true
+Unit=morpheus-monitor.service
+
+[Install]
+WantedBy=timers.target

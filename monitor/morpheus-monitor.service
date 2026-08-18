@@ -1,0 +1,18 @@
+[Unit]
+Description=Morpheus provider monitor (read-only chain + router health check)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/morpheus/monitor
+EnvironmentFile=/root/morpheus/monitor/monitor.env
+ExecStart=/usr/bin/python3 /root/morpheus/monitor/morpheus_monitor.py
+# The script signals problems by notification, not exit status. A non-zero
+# exit means the script itself is broken, which is worth a systemd failure.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
