@@ -1,0 +1,47 @@
+# Deploy to the public repo as .github/workflows/snapshot.yml
+#
+# Appends one position snapshot per hour to snapshots.jsonl. Hourly is a
+# deliberate choice: sessions arrive in bursts, so a daily sample would smear
+# them and make it impossible to tell a quiet day from a stalled node.
+#
+# Chain-only, no secrets. Everything it reads is public state.
+
+name: Position snapshot
+
+on:
+  schedule:
+    # :41 — off the hour, because GitHub queues a flood of jobs at :00 and
+    # delays them. An odd minute gets picked up sooner.
+    - cron: "41 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append snapshot
+        env:
+          PROVIDER_ADDRESS: ${{ vars.PROVIDER_ADDRESS }}
+          SNAPSHOT_FILE: snapshots.jsonl
+        run: python3 watchdog/snapshot.py
+
+      # Append-only, so a concurrent census commit rebases cleanly rather than
+      # conflicting — that is the main reason for JSONL over a rewritten JSON.
+      - name: Commit
+        run: |
+          git config user.name  "morcompute-watchdog"
+          git config user.email "watchdog@users.noreply.github.com"
+          git add snapshots.jsonl
+          git diff --staged --quiet || git commit -m "snapshot $(date -u +%FT%TZ)"
+          git pull --rebase --autostash origin main || true
+          git push origin main
