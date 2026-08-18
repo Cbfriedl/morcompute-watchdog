@@ -530,7 +530,7 @@ function renderCapture(){
                                          : "awaiting next census";
     return;
   }
-  v.textContent = (100*MY_SESSIONS/net).toFixed(2)+"%";
+  v.textContent = (100*MY_SESSIONS/net).toFixed(1)+"%";
   s.textContent = "of "+net.toLocaleString()+" network-wide, all time";
 }
 
