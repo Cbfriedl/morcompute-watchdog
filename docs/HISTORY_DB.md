@@ -241,7 +241,39 @@ FROM session s JOIN provider pr ON pr.id = s.p
 GROUP BY pr.addr ORDER BY mor DESC;
 ```
 
-A query filtering on `u` (buyer) or grouping by provider alone has no index and
-will scan the table — which over HTTP means downloading most of the file. If the
-dashboard needs those shapes routinely, add the index at build time rather than
-paying for the scan on every page load.
+### Two query shapes that do *not* use an index
+
+Verified with `EXPLAIN QUERY PLAN` against the built file:
+
+| query | plan |
+|---|---|
+| one model over time | `SEARCH … USING INDEX i_mt` |
+| provider on one model | `SEARCH … USING COVERING INDEX i_pmt` |
+| date-range slice | `SEARCH … USING INDEX i_t` |
+| provider lifetime | `SEARCH … USING INDEX i_pmt (p=?)` |
+| **market-wide daily totals** | `SCAN session` |
+| **buyer drill-down** (`WHERE u = ?`) | `SCAN session` |
+
+The market-wide scan does not matter — that is precisely the view
+`history-daily.json` exists to serve, in 7 KB, with no database fetch at all.
+
+**Buyer drill-down does matter,** and it is the one gap in this build. The
+schema shipped here is the one that was specified, with exactly three indexes,
+so `WHERE u = ?` walks the whole `session` table — 8.3 MB of pages over HTTP,
+on every such query. That is a deliberate omission left visible rather than
+silently patched, because whoever owns the dashboard should decide it.
+
+If you want it, it is a one-line change and a rebuild — the `db` stage is
+offline and takes a few seconds:
+
+```sql
+CREATE INDEX i_ut ON session(u, t);
+```
+
+Cost, measured from `dbstat` on the existing indexes: about **4–5 MB**, taking
+the file from 23.2 MB to roughly 28 MB. Still far under GitHub's 50 MB warning.
+
+```
+session   8068 pages  8.26 MB      i_mt   4907 pages  5.02 MB
+i_pmt     5531 pages  5.66 MB      i_t    4080 pages  4.18 MB
+```
