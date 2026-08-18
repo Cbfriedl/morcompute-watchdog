@@ -65,3 +65,12 @@ if it drops below threshold.
 
 The dashboard failing is **not** the same as the node failing — it is a viewer,
 not a monitor. Alerting is what tells you something is wrong.
+
+## Documentation
+
+- **[Pricing Strategy](docs/PRICING_STRATEGY.md)** — how a listing wins work, what it
+  costs to serve, and how to price it from first bid to steady state. Start here.
+- **[Operations Handoff](docs/HANDOFF.md)** — what runs where, the runbook, and the
+  failure modes worth knowing before you touch anything.
+- **[research/](research/)** — the scripts behind the analysis. `foundation/` builds the
+  dataset; `analysis/` queries it.
