@@ -310,6 +310,100 @@ def last_stake(addr):
     return None, None
 
 
+MOR_TOKEN = "0x7431aDa8a591C955a994a21710752EF9b882b8e3"
+TRANSFER_TOPIC = ("0xddf252ad1be2c89b69c2b068fc378daa"
+                  "952ba7f163c4a11628f55a4df523b3ef")
+TREASURY = "0x5160c0311a95e0a1072fa85df23712a7ba1cd4b1"
+
+
+def outside_capital_all(addrs, log, days=160, step=9000):
+    """Outside capital and total claimed, for every provider, in one scan.
+
+    Claims arrive from the treasury multisig; every other inbound MOR transfer
+    is capital the operator supplied. eth_getLogs accepts an array in a topic
+    position, so all providers are captured in a single pass rather than one
+    scan each -- the difference between ~9 minutes and several hours.
+
+    This replaces an earlier max(stake - earned) heuristic which was only a
+    LOWER bound: it undershot whenever fresh capital arrived after earnings had
+    already begun. Verified against 0x010208ec, where the heuristic said 3,997
+    and the true figure is 5,268.
+
+    Returns (outside_by_addr, claimed_by_addr, coverage_fraction).
+    """
+    pad = {("0x" + a[2:].lower().rjust(64, "0")): a.lower() for a in addrs}
+    topics_to = list(pad.keys())
+    try:
+        head = int(rpc([{"jsonrpc": "2.0", "id": 1,
+                         "method": "eth_blockNumber", "params": []}])[0]["result"], 16)
+    except Exception as e:
+        log("  outside scan: cannot read head (%s)" % str(e)[:60])
+        return {}, {}, 0.0
+    start = head - int(days * 86400 / 2)
+    outside, claimed = {}, {}
+    blk, scanned, total = start, 0, head - start
+    while blk < head:
+        to_blk = min(blk + step - 1, head)
+        try:
+            logs = rpc([{"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+                         "params": [{"address": MOR_TOKEN,
+                                     "fromBlock": hex(blk), "toBlock": hex(to_blk),
+                                     "topics": [TRANSFER_TOPIC, None, topics_to]}]}])[0]["result"]
+        except Exception:
+            blk = to_blk + 1
+            continue
+        for lg in logs:
+            a = pad.get(lg["topics"][2])
+            if not a:
+                continue
+            frm = "0x" + lg["topics"][1][26:]
+            v = int(lg["data"], 16) / 1e18
+            if frm == TREASURY:
+                claimed[a] = claimed.get(a, 0.0) + v
+            else:
+                outside[a] = outside.get(a, 0.0) + v
+        scanned = to_blk - start
+        blk = to_blk + 1
+    cov = scanned / total if total else 0.0
+    log("  outside capital: %d providers, %.0f%% of window" % (len(outside), 100 * cov))
+    return outside, claimed, cov
+
+
+def outside_capital(addr):
+    """MOR the provider brought in from outside, as opposed to recycled income.
+
+    Re-staked earnings reach the wallet FROM the Diamond (via claim); capital the
+    operator supplied arrives from anywhere else. Summing non-Diamond inflows
+    therefore separates the two, which is what makes a return figure meaningful:
+    earning 89,919 MOR on 3,900 of contributed capital is a different statement
+    from earning it on a 90,760 stake that is mostly recycled.
+
+    Returns None when Blockscout cannot answer — better a blank than a guess.
+    """
+    tot_in = from_dia = 0.0
+    params = "?type=ERC-20"
+    url = "%s/api/v2/addresses/%s/token-transfers" % (BLOCKSCOUT, addr)
+    for _page in range(40):
+        d = _bs(url + params)
+        if not isinstance(d, dict):
+            return None
+        items = d.get("items") or []
+        for t in items:
+            if ((t.get("token") or {}).get("symbol") or "").upper() != "MOR":
+                continue
+            if (t.get("to") or {}).get("hash", "").lower() != addr.lower():
+                continue
+            v = int(((t.get("total") or {}).get("value")) or 0) / 1e18
+            tot_in += v
+            if (t.get("from") or {}).get("hash", "").lower() == DIAMOND.lower():
+                from_dia += v
+        np = d.get("next_page_params")
+        if not np:
+            break
+        params = "?type=ERC-20&" + "&".join("%s=%s" % (k, v) for k, v in np.items())
+    return round(tot_in - from_dia, 4)
+
+
 def provider_snapshot(log):
     """stake / earned / headroom for every active provider.
 
@@ -346,9 +440,64 @@ def provider_snapshot(log):
                     "head": round(stake - earned, 4),
                     "pct": round(100 * earned / stake, 2) if stake else 0.0,
                     "deleted": int(pw[b + 5], 16) == 1,
+                    # createdAt — registration timestamp. Free here (same struct)
+                    # and it is the only honest denominator for an APR figure.
+                    "createdAt": int(pw[b + 2], 16),
                 })
             except Exception:
                 pass
+    # All-time session count. getProviderSessions returns the whole append-only
+    # id list, so its LENGTH is the lifetime count — one call per provider, no
+    # need to read the sessions themselves. This is what makes an honest
+    # "share of all sessions ever" denominator affordable; the per-model split
+    # stays 10-day only, because that would mean reading every session.
+    if os.environ.get("CENSUS_SESS_ALL", "1") == "1":
+        got = 0
+        for p in out:
+            try:
+                w = W(rpc([call(SEL_PROVIDER_SESSIONS + p["a"][2:].rjust(64, "0")
+                                + "%064x" % 0 + "%064x" % 20000)])[0]["result"])
+                o = int(w[0], 16) // 32
+                n = int(w[o], 16)
+                total = n
+                # a provider with >20k sessions pages; the cap is a response-size
+                # limit on the RPC, not a limit on what we want to count
+                start = 20000
+                while n == 20000:
+                    w = W(rpc([call(SEL_PROVIDER_SESSIONS + p["a"][2:].rjust(64, "0")
+                                    + "%064x" % start + "%064x" % 20000)])[0]["result"])
+                    o = int(w[0], 16) // 32
+                    n = int(w[o], 16)
+                    total += n
+                    start += 20000
+                p["sAll"] = total
+                got += 1
+            except Exception:
+                pass
+        log("  all-time session counts for %d/%d providers (%d sessions)"
+            % (got, len(out), sum(p.get("sAll", 0) for p in out)))
+
+    if os.environ.get("CENSUS_OUTSIDE", "1") == "1":
+        try:
+            oc_map, claim_map, cov = outside_capital_all([p["a"] for p in out], log)
+            for p in out:
+                oc = oc_map.get(p["a"].lower())
+                cl = claim_map.get(p["a"].lower())
+                if cl is not None:
+                    p["claimed"] = round(cl, 4)
+                if oc and oc > 0:
+                    p["outside"] = round(oc, 4)
+                    # return on capital actually contributed, not on the inflated
+                    # stake that re-staking produces
+                    p["roi"] = round(100 * p["earned"] / oc, 1)
+                    if cl is not None:
+                        # claimed but not re-staked = profit taken out
+                        p["extracted"] = round(max(cl - max(p["stake"] - oc, 0), 0), 4)
+            log("  outside capital attached to %d providers (coverage %.0f%%)"
+                % (sum(1 for p in out if "outside" in p), 100 * cov))
+        except Exception as e:
+            log("  outside capital failed: %s" % str(e)[:100])
+
     if os.environ.get("CENSUS_LAST_STAKE", "1") == "1":
         got = 0
         for p in out:
@@ -551,6 +700,7 @@ def main():
                       for p in providers_snap],
         "sessions7d": sum(v["s7"] for v in sess_model.values()),
         "sessions10d": sum(v["s10"] for v in sess_model.values()),
+        "sessionsAllTime": sum(p.get("sAll", 0) for p in providers_snap) or None,
         "sessionsNote": sess_note,
         "sessionDays": SESSION_DAYS,
         "runSeconds": round(time.time() - t0),

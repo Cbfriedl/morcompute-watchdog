@@ -80,6 +80,9 @@
   .card.earn .v{color:var(--c-earn-ink)}
   .card.time{background:var(--c-time-bg);border-color:var(--c-time-br)}
   .card.time .v{color:var(--c-time-ink)}
+  /* zero headroom: still serving, still paying, earning nothing */
+  .card.choke{background:var(--choke-bg);border-color:var(--choke-br)}
+  .card.choke .v,.card.choke .s{color:var(--choke-ink)}
 
   .meterbox{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
     padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
@@ -159,15 +162,32 @@
     </div>
   </div>
 
+  <!-- Same card set, same order, as the provider-lookup panel in the bid market
+       census, so a figure means the same thing on both pages. Everything here is
+       read live from chain for this one address; the census reads it daily for
+       everyone. -->
   <div class="grid">
-    <div class="card earn"><span class="k">Earned so far</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">MOR</span></div>
-    <div class="card earn"><span class="k">MOR per day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
-    <div class="card earn"><span class="k">Earnable now</span><span class="v num" id="headroom">—</span><span class="s">MOR</span></div>
-    <div class="card earn"><span class="k">Sessions</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
+    <div class="card time"><span class="k">Registration date</span><span class="v num" id="reg">—</span><span class="s" id="reg-sub">—</span></div>
+    <div class="card hold" id="c-head"><span class="k">Headroom</span><span class="v num" id="headroom">—</span><span class="s" id="headroom-sub">MOR still earnable</span></div>
+    <div class="card hold"><span class="k">Current stake</span><span class="v num" id="stake">—</span><span class="s">MOR staked now</span></div>
+    <div class="card hold"><span class="k">Base stake</span><span class="v num" id="basestake">—</span><span class="s">MOR contributed, not recycled</span></div>
+    <div class="card earn"><span class="k">Total earned</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">since registering</span></div>
+    <div class="card earn"><span class="k">Earned / day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
+    <div class="card earn"><span class="k">ROI on base stake</span><span class="v num" id="roi">—</span><span class="s" id="roi-sub">earned ÷ contributed</span></div>
+    <div class="card earn"><span class="k">APR on base stake</span><span class="v num" id="apr">—</span><span class="s" id="apr-sub">annualised</span></div>
+    <div class="card earn"><span class="k">Active bids</span><span class="v num" id="nbids">—</span><span class="s" id="nbids-sub">listings on offer</span></div>
+    <div class="card earn"><span class="k">Earning bids</span><span class="v num" id="ebids">—</span><span class="s" id="ebids-sub">listings that took work</span></div>
+    <div class="card earn"><span class="k">Median bid price</span><span class="v num" id="medbid">—</span><span class="s">MOR / day</span></div>
+    <div class="card earn"><span class="k">Session capture</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
+    <div class="card earn"><span class="k">Capture rate</span><span class="v num" id="capture">—</span><span class="s" id="capture-sub">needs census</span></div>
     <div class="card earn"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
-    <div class="card time"><span class="k">Counter resets</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
+  </div>
+
+  <!-- Node and wallet health. Not part of the census card set — it has no way to
+       see them — but this is the page that has to tell you the box is alive. -->
+  <div class="grid">
     <div class="card time"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
-    <div class="card hold"><span class="k">Staked</span><span class="v num" id="stake">—</span><span class="s">MOR</span></div>
+    <div class="card time"><span class="k">Counter resets</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
     <div class="card hold"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
     <div class="card hold"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
   </div>
@@ -258,6 +278,10 @@ const SESSION_ATTRIB_CAP = 150;
 // UPDATE THIS whenever new (non-claimed) MOR is added to the stake.
 const EXTERNAL_STAKE = 700;
 let morUsd = null;
+// Capture rate needs both halves and they arrive from different places at
+// different times: my own session count from the chain read, the network total
+// from the daily census file. Whichever lands second draws the card.
+let MY_SESSIONS = null;
 
 const pad = a => a.toLowerCase().replace("0x","").padStart(64,"0");
 const W = h => { h = h.startsWith("0x") ? h.slice(2) : h;
@@ -308,6 +332,7 @@ async function load(){
     const w = W(pRaw), b = parseInt(w[0],16)/32;
     const endpoint = decodeStr(w, b + parseInt(w[b],16)/32);
     const stake   = Number(BigInt("0x"+w[b+1]))/1e18;
+    const createdAt = parseInt(w[b+2],16);   // registration timestamp
     const periodEnd = parseInt(w[b+3],16);
     const earned  = Number(BigInt("0x"+w[b+4]))/1e18;
     const deleted = parseInt(w[b+5],16) === 1;
@@ -321,11 +346,39 @@ async function load(){
     const pct = 100*headroom/capacity;
 
     document.getElementById("endpoint").textContent = endpoint || "—";
-    document.getElementById("stake").textContent   = fmt(stake);
-    document.getElementById("earned").textContent  = fmt(earned);
-    document.getElementById("earned-pct").textContent =
-      "MOR total";
-    document.getElementById("headroom").textContent = fmt(headroom);
+    document.getElementById("stake").textContent   = fmt(stake,1);
+    document.getElementById("earned").textContent  = fmt(earned,1);
+    document.getElementById("earned-pct").textContent = "since registering";
+    document.getElementById("headroom").textContent = fmt(headroom,1);
+    document.getElementById("basestake").textContent = fmt(EXTERNAL_STAKE,1);
+
+    // Zero headroom is the state worth shouting about: the node keeps serving and
+    // keeps costing money while earning nothing until it claims and re-stakes.
+    const chokeCard = document.getElementById("c-head");
+    const choked = headroom <= 0.5;
+    chokeCard.className = "card " + (choked ? "choke" : "hold");
+    document.getElementById("headroom-sub").textContent =
+      choked ? "CHOKED — claim and re-stake" : "MOR still earnable";
+
+    // Registration date, and the age that every annualised figure divides by.
+    const ageDays = createdAt ? (Date.now()/1000 - createdAt)/86400 : null;
+    document.getElementById("reg").textContent = createdAt
+      ? new Date(createdAt*1000).toLocaleDateString(undefined,
+          {month:"2-digit",day:"2-digit",year:"2-digit"}) : "—";
+    document.getElementById("reg-sub").textContent =
+      ageDays === null ? "date unknown" : Math.round(ageDays)+" days ago";
+
+    // Return is measured against capital contributed from OUTSIDE, not against
+    // current stake — re-staking earnings inflates stake and would flatter this.
+    const roi = EXTERNAL_STAKE ? 100*earned/EXTERNAL_STAKE : null;
+    document.getElementById("roi").textContent =
+      roi === null ? "—" : Math.round(roi).toLocaleString()+"%";
+    const apr = (roi !== null && ageDays) ? roi*365/ageDays : null;
+    document.getElementById("apr").textContent =
+      apr === null ? "—" : Math.round(apr).toLocaleString()+"%";
+    document.getElementById("apr-sub").textContent =
+      ageDays ? "annualised over "+Math.round(ageDays)+"d" : "annualised";
+
     document.getElementById("eth").textContent = fmt(eth,5);
     document.getElementById("mor").textContent = fmt(morBal);
     document.getElementById("mor-usd").textContent =
@@ -359,21 +412,31 @@ async function load(){
       const sw = W(sessRaw), so = parseInt(sw[0],16)/32, sn = parseInt(sw[so],16);
       sessionIds = Array.from({length:sn},(_,i)=>"0x"+sw[so+1+i]);
     }
-    document.getElementById("sessions").textContent = sessRaw ? sessionIds.length : "—";
+    document.getElementById("sessions").textContent = sessRaw ? sessionIds.length.toLocaleString() : "—";
     document.getElementById("sessions-sub").textContent =
       sessRaw ? "total, all time" : "could not read";
+    MY_SESSIONS = sessRaw ? sessionIds.length : null;
+    renderCapture();
 
     // bids
     const bw = W(bidRaw), off = parseInt(bw[0],16)/32, n = parseInt(bw[off],16);
     const ids = Array.from({length:n},(_,i)=>"0x"+bw[off+1+i]);
     setPill(document.getElementById("p-bids"), n ? "ok" : "wa",
       n ? n+" active bid"+(n>1?"s":"") : "no bids — not earning");
+    document.getElementById("nbids").textContent = n;
+    document.getElementById("nbids-sub").textContent =
+      n ? "listings on offer" : "nothing can be sold";
 
     const tb = document.getElementById("bids");
     if(!n){
       tb.innerHTML = '<tr><td colspan="5" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
+      document.getElementById("ebids").textContent = "0";
+      document.getElementById("ebids-sub").textContent = "no listings on offer";
+      document.getElementById("medbid").textContent = "—";
     } else {
       let firstBidAt = Infinity;
+      const prices = [];      // for the median bid price card
+      let earningBids = 0;    // listings that actually took work
       // map bidId -> session count (capped; see SESSION_ATTRIB_CAP)
       const perBid = {};
       const toScan = sessionIds.slice(-SESSION_ATTRIB_CAP);
@@ -400,6 +463,8 @@ async function load(){
           name = decodeStr(m, base + parseInt(m[base+4],16)/32) || "(unnamed)";
         }catch(e){ name = "(lookup failed)"; }
         const sc = perBid[id] || 0;
+        prices.push(perDay);
+        if (sc > 0) earningBids++;
         return `<tr><td class="num">${modelId.slice(0,14)}…</td>
                 <td>${name}</td>
                 <td class="num">${fmt(perDay,3)}</td>
@@ -407,6 +472,18 @@ async function load(){
                 <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
       }));
       tb.innerHTML = rows.join("");
+
+      prices.sort((a,b)=>a-b);
+      const med = prices.length
+        ? (prices.length % 2 ? prices[(prices.length-1)/2]
+                             : (prices[prices.length/2-1]+prices[prices.length/2])/2)
+        : null;
+      // bid prices keep 2 decimals; every MOR amount elsewhere keeps 1
+      document.getElementById("medbid").textContent = med === null ? "—" : fmt(med,2);
+      document.getElementById("ebids").textContent = earningBids;
+      document.getElementById("ebids-sub").textContent =
+        Math.round(100*earningBids/n) + "% of listings took work"
+        + (capped ? " (last "+SESSION_ATTRIB_CAP+" sessions)" : "");
 
       // Earnings rate since the first bid went live. Before any bid existed the
       // node could not sell, so dividing lifetime earnings by provider age would
@@ -438,6 +515,23 @@ async function load(){
     err.textContent = "Could not read the chain: " + (e.message||e) +
       " — showing the last successful values. This page failing is NOT the same as your node failing.";
   }
+}
+
+function renderCapture(){
+  const v = document.getElementById("capture"), s = document.getElementById("capture-sub");
+  if (!v) return;
+  // Denominator must match the numerator's window. My session count is all-time,
+  // so the network total has to be all-time too — never the 10-day figure.
+  const net = CENSUS && (CENSUS.sessionsAllTime ||
+    ((CENSUS.providers||[]).reduce((a,p)=>a+(p.sAll||0),0) || null));
+  if (MY_SESSIONS === null || !net){
+    v.textContent = "—";
+    s.textContent = MY_SESSIONS === null ? "could not read sessions"
+                                         : "awaiting next census";
+    return;
+  }
+  v.textContent = (100*MY_SESSIONS/net).toFixed(2)+"%";
+  s.textContent = "of "+net.toLocaleString()+" network-wide, all time";
 }
 
 async function loadUptime(){
@@ -488,6 +582,7 @@ async function loadCensus(){
     "census " + (C.asOf||"").slice(0,16).replace("T"," ") + " UTC · "
     + C.totalBids + " bids · " + C.providers?.length + " providers";
   document.getElementById("marketwrap").style.display = "";
+  renderCapture();
   renderMarket();
   if (C.providers && C.providers.length){
     document.getElementById("provwrap").style.display = "";
