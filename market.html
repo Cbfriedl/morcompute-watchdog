@@ -1,0 +1,233 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Morpheus Market</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<div class="wrap">
+  <div class="masthead">
+    <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
+    <div><h1>Market</h1><div class="sub" id="asof">loading census…</div></div>
+  </div>
+  <div id="navslot"></div>
+  <div class="warnbox" id="stale" style="display:none"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="chartbox">
+    <h2>Where bid prices sit</h2>
+    <div class="note">Every live bid on the network, log-scaled. Your bids marked in green.</div>
+    <svg id="hist" viewBox="0 0 1000 230" style="height:230px"></svg>
+  </div>
+
+  <div class="tbl" id="dormbox" style="display:none">
+    <h2><span>Dormant — choked, but with history</span>
+        <span class="note" id="dormnote"></span></h2>
+    <div style="padding:0 16px 10px" class="sub" id="dormlead"></div>
+    <div class="scroll"><table id="dorm">
+      <thead><tr>
+        <th data-k="a">Address</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="couldReturn" class="num">Headroom if it re-stakes</th>
+      </tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="tbl">
+    <h2><span>Providers</span><span class="note" id="pvnote"></span></h2>
+    <div class="toolbar">
+      <input type="search" id="pvf" placeholder="filter address…">
+      <label class="chkl"><input type="checkbox" id="pvEarn"> only those earning</label>
+      <label class="chkl"><input type="checkbox" id="pvChoke"> include choked</label>
+      <span class="count" id="pvcount"></span>
+    </div>
+    <div class="scroll"><table id="pvtable">
+      <thead><tr>
+        <th data-k="a">Address</th>
+        <th data-k="stake" class="num">Staked</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="head" class="num">Headroom</th>
+        <th data-k="pct" class="num">Earned / staked</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+      </tr></thead><tbody></tbody>
+    </table></div>
+  </div>
+
+  <footer>
+    Market data from the daily census · your own position is on the private dashboard<br>
+    <a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a>
+  </footer>
+</div>
+
+<script type="module">
+import {ADDR,fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+document.getElementById("navslot").innerHTML = nav("market.html");
+const ME = ADDR.toLowerCase();
+
+const C = await (async()=>{ try{ return await (await fetch("census.json?cb="+Date.now())).json(); }
+                            catch(e){ return null; } })();
+
+if(!C){
+  document.getElementById("asof").textContent = "census not published yet";
+} else {
+  const asOf = (C.asOf||"").slice(0,16).replace("T"," ");
+  const ageH = C.asOf ? (Date.now()-new Date(C.asOf).getTime())/3.6e6 : null;
+  document.getElementById("asof").textContent =
+    `census ${asOf} UTC` + (ageH!=null ? ` · ${ageH<48? fmt(ageH,0)+"h" : fmt(ageH/24,1)+"d"} old` : "");
+
+  // A partial census is the failure mode that has actually happened: the run
+  // wrote models and bids but never reached the session scan or provider
+  // snapshot. Say so plainly rather than rendering blanks.
+  const missing = ["providers","registeredModels","activeProviders","zeroHeadroom","sessions10d"]
+    .filter(k => C[k]==null || (k==="providers" && !Array.isArray(C[k])));
+  if(missing.length){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML = `<b>This census is incomplete.</b> The run finished the model and bid scan but not
+      the session or provider stages, so these are unavailable: <span class="mono">${missing.join(", ")}</span>.
+      Cards and tables below that depend on them are hidden rather than shown as zero.`;
+  }
+  if(ageH!=null && ageH>36){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML += `<br><b>It is also ${fmt(ageH/24,1)} days old</b> — the daily job may not be running.`;
+  }
+
+  const P = Array.isArray(C.providers) ? C.providers : [];
+  const live = P.filter(p=>!p.deleted);
+  // "contending" = has headroom, therefore can actually be paid and can
+  // actually outbid you. Choked providers are counted, never compared: they
+  // take no sessions until they claim and re-stake.
+  const CHOKE = 0.5;
+  const contend = live.filter(p=>(p.head||0) > CHOKE);
+  const choked  = live.filter(p=>(p.head||0) <= CHOKE);
+  const cards = [
+    card("Registered models", int(C.registeredModels ?? C.activeModels), "on chain, network wide","time"),
+    card("Models with bids", int(C.modelsWithBids), "at least one live listing","time"),
+    card("Total live bids", int(C.totalBids), "across all providers","time"),
+  ];
+  if(live.length){
+    const earners = contend.filter(p=>p.earned>0).length;
+    cards.push(
+      card("Contending providers", int(contend.length),
+           "have headroom — can be paid","hold"),
+      card("Choked", int(choked.length),
+           choked.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none",
+           "choke"),
+      card("Have ever earned", int(earners),
+           contend.length? pct(100*earners/contend.length,0)+" of contenders":"—","earn"),
+      card("Staked by contenders", mor(contend.reduce((a,p)=>a+(p.stake||0),0)),
+           "MOR that can still earn","hold"),
+      card("Earned by contenders", mor(contend.reduce((a,p)=>a+(p.earned||0),0)),
+           "MOR, all time","earn"));
+  }
+  if(C.sessions10d!=null)
+    cards.push(card("Sessions, 10d", int(C.sessions10d), fmt(C.sessions10d/10,0)+" / day","earn"));
+  if(C.sessionsAllTime!=null)
+    cards.push(card("Sessions, all time", int(C.sessionsAllTime), "network wide","earn"));
+  cards.push(
+    card("Median bid price", price(C.p50), "MOR / day","earn"),
+    card("Cheapest decile", price(C.p10), "10th percentile","earn"),
+    card("At the ceiling", int(C.atCeiling), "bids at 864 MOR/day","time"));
+  document.getElementById("cards").innerHTML = cards.join("");
+
+  /* ---- price distribution, log bins ---- */
+  const px = (C.models||[]).flatMap(m=>m.px||[]).filter(v=>v>0);
+  const mine = new Set((C.models||[]).flatMap(m=>(m.pv||[])
+      .filter(v=>String(v[0]).toLowerCase()===ME || v[0]===ME).map(v=>v[1])));
+  if(px.length){
+    const lo=Math.log10(Math.min(...px)), hi=Math.log10(Math.max(...px)), NB=16;
+    const bins=Array.from({length:NB},(_,i)=>({c:0,mine:0,
+      lo:Math.pow(10,lo+(hi-lo)*i/NB), hi:Math.pow(10,lo+(hi-lo)*(i+1)/NB)}));
+    px.forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); bins[i].c++; });
+    [...mine].forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); if(bins[i]) bins[i].mine++; });
+    const W=1000,H=230,P_={l:44,r:14,t:14,b:44};
+    const raw=Math.max(...bins.map(b=>b.c),1), max=Math.ceil(raw/10)*10;
+    const bw=(W-P_.l-P_.r)/NB;
+    const y=v=>H-P_.b-(H-P_.t-P_.b)*(v/max);
+    document.getElementById("hist").innerHTML =
+      `<line x1="${P_.l}" y1="${y(max)}" x2="${W-P_.r}" y2="${y(max)}" stroke="var(--rule)"/>
+       <text x="${P_.l-6}" y="${y(max)+4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${max}</text>
+       <line x1="${P_.l}" y1="${H-P_.b}" x2="${W-P_.r}" y2="${H-P_.b}" stroke="var(--rule-2)"/>` +
+      bins.map((b,i)=>{
+        const x=P_.l+i*bw, h=(H-P_.b)-y(b.c);
+        const col = b.mine? "var(--accent)" : "var(--c-hold-ink)";
+        return (b.c? `<rect x="${x+1.5}" y="${y(b.c)}" width="${bw-3}" height="${Math.max(h,1)}"
+                  fill="${col}" rx="3"/>
+                <text x="${x+bw/2}" y="${y(b.c)-4}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.c}</text>`:"") +
+          (i%3===0? `<text x="${x+bw/2}" y="${H-P_.b+15}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.lo<1? b.lo.toFixed(2):Math.round(b.lo)}</text>`:"");
+      }).join("") +
+      `<text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--ink-3)">
+        bid price, MOR/day (log scale) — <tspan fill="var(--accent)">green = a bin containing one of your bids</tspan></text>`;
+  }
+
+  /* ---- dormant: choked, but with real history ----
+     Ranked by what they could re-stake, not by past volume. Re-staking restores
+     headroom one-for-one with the amount staked, so a provider that earned
+     9,882 MOR can return with 9,882 MOR of headroom, while one that earned
+     1 MOR cannot come back at any scale without fresh outside capital.
+     Past session count says who they WERE; claimable earnings says who they
+     could be tomorrow. */
+  const dorm = choked.filter(p=>(p.sAll||0)>0)
+    .map(p=>({...p, couldReturn: p.earned||0}))
+    .sort((a,b)=>b.couldReturn-a.couldReturn);
+  if(dorm.length){
+    document.getElementById("dormbox").style.display="";
+    const totS = dorm.reduce((a,p)=>a+(p.sAll||0),0);
+    const totR = dorm.reduce((a,p)=>a+p.couldReturn,0);
+    const big  = dorm.filter(p=>p.couldReturn>=100);
+    document.getElementById("dormnote").textContent =
+      `${dorm.length} of ${choked.length} choked have run sessions before`;
+    document.getElementById("dormlead").innerHTML =
+      `These cannot take sessions today — zero headroom means they cannot be paid. But choking is
+       reversible: claiming and re-staking restores headroom one-for-one. Between them they have run
+       <b>${int(totS)}</b> sessions and could return with <b>${mor(totR)} MOR</b> of headroom without
+       adding a penny of new capital.` +
+      (big.length ? ` <b>${big.length}</b> could return at meaningful scale (≥100 MOR); the rest would
+       need fresh outside capital to matter.` : ` None could return at meaningful scale without new capital.`);
+    sortable(document.getElementById("dorm"), dorm, p=>{
+      const heavy = p.couldReturn>=100;
+      return `<tr${heavy?' class="choked"':''}>
+        <td class="num">${short(p.a)}${heavy?" · could return big":""}</td>
+        <td class="num">${int(p.sAll)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.couldReturn)}</td></tr>`;
+    }, "couldReturn", -1);
+  }
+
+  /* ---- providers table ---- */
+  const tb=document.getElementById("pvtable");
+  if(!live.length){
+    tb.closest(".tbl").style.display="none";
+  } else {
+    const row = p=>{
+      const me = p.a.toLowerCase()===ME;
+      const ch = (p.head||0) <= CHOKE;
+      return `<tr class="${me?'me ':''}${ch?'choked':''}">
+        <td class="num">${short(p.a)}${me?' ← you':''}${ch?' · must re-stake':''}</td>
+        <td class="num">${mor(p.stake)}</td><td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.head)}</td><td class="num">${pct(p.pct)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${p.sAll!=null? int(p.sAll):"—"}</td></tr>`;
+    };
+    let draw = sortable(tb, live, row, "earned", -1);
+    const apply=()=>{
+      const q=(document.getElementById("pvf").value||"").toLowerCase().trim();
+      const showChoked = document.getElementById("pvChoke").checked;
+      let rows = showChoked ? live : contend;
+      if(q) rows=rows.filter(p=>p.a.toLowerCase().includes(q));
+      if(document.getElementById("pvEarn").checked) rows=rows.filter(p=>p.earned>0);
+      draw = sortable(tb, rows, row, "earned", -1);
+      document.getElementById("pvcount").textContent =
+        `${rows.length} of ${showChoked? live.length : contend.length}` +
+        (showChoked? " (incl. choked)" : ` contending · ${choked.length} choked hidden`);
+    };
+    ["pvf","pvEarn","pvChoke"].forEach(id=>
+      document.getElementById(id).addEventListener("input",apply));
+    apply();
+    document.getElementById("pvnote").textContent = C.sessionsNote || "";
+  }
+}
+</script>
