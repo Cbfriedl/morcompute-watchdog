@@ -60,7 +60,8 @@ export const day = ts => !ts ? "—"
 /* ---------- shared chrome ---------- */
 export function nav(current){
   const pages = [["index.html","My node"],["market.html","Market"],
-                 ["models.html","Models"],["trends.html","Trends"]];
+                 ["models.html","Models"],["providers.html","Providers"],
+                 ["trends.html","Trends"]];
   return `<nav>` + pages.map(([h,t]) =>
     `<a href="${h}"${h===current?' aria-current="page"':''}>${t}</a>`).join("") + `</nav>`;
 }

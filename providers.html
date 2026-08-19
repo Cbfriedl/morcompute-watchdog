@@ -1,0 +1,142 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Morpheus Providers</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<div class="wrap">
+  <div class="masthead">
+    <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
+    <div><h1>Providers</h1><div class="sub" id="asof">loading…</div></div>
+  </div>
+  <div id="navslot"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="tbl">
+    <h2><span>Bids by address</span><span class="note">click a row for the full breakdown</span></h2>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="paste or type an address…" style="min-width:280px">
+      <label class="chkl"><input type="radio" name="f" value="contend" checked> contenders</label>
+      <label class="chkl"><input type="radio" name="f" value="all"> include choked</label>
+      <label class="chkl"><input type="radio" name="f" value="choked"> choked only</label>
+      <span class="count" id="cnt"></span>
+    </div>
+    <div class="scroll"><table id="t">
+      <thead><tr>
+        <th data-k="a">Address</th>
+        <th data-k="bids" class="num">Bids</th>
+        <th data-k="models" class="num">Models</th>
+        <th data-k="mn" class="num">Min</th>
+        <th data-k="md" class="num">Median</th>
+        <th data-k="mx" class="num">Max</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="sAll" class="num">All-time</th>
+        <th data-k="stake" class="num">Staked</th>
+        <th data-k="head" class="num">Headroom</th>
+      </tr></thead><tbody></tbody></table></div>
+    <div id="detail"></div>
+  </div>
+
+  <footer><a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a></footer>
+</div>
+
+<script type="module">
+import {fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+document.getElementById("navslot").innerHTML = nav("providers.html");
+
+const C = await (async()=>{ try{ return await (await fetch("census-full.json?cb="+Date.now())).json(); }
+                            catch(e){ return null; } })();
+if(!C){ document.getElementById("asof").textContent="census not published yet"; }
+else {
+const ME=(C.youAre||"").toLowerCase();
+const CHOKE=0.5;
+document.getElementById("asof").textContent =
+  `census ${C.asOf} ${C.asOfTime} · ${C.windowDays}-day session window`;
+
+const rows = Object.entries(C.pdetail).map(([a,p])=>({a, ...p}))
+  .filter(p=>!p.deleted);
+const contend = rows.filter(p=>(p.head||0)>CHOKE);
+const choked  = rows.filter(p=>(p.head||0)<=CHOKE);
+const withBids = rows.filter(p=>p.bids>0);
+
+document.getElementById("cards").innerHTML = [
+  card("Registered providers", int(rows.length), "not deleted","time"),
+  card("Contenders", int(contend.length), "have headroom — can be paid","hold"),
+  card("Choked", int(choked.length),
+       pct(100*choked.length/rows.length,0)+" of registered","choke"),
+  card("Addresses bidding", int(withBids.length), "at least one live bid","earn"),
+  card("Live bids", int(C.totalBids), "across "+int(C.modelsWithBids)+" models","earn"),
+  card("Sessions, "+C.windowDays+"d", int(C.sessionsWindow),
+       fmt(C.sessionsWindow/C.windowDays,0)+" / day","earn"),
+  card("Sessions, all time", int(C.sessionsNetwork), "network wide","earn"),
+  card("Median bid price", price(C.p50), "MOR / day","hold"),
+].join("");
+
+const rowHTML = p=>{
+  const me=p.a.toLowerCase()===ME, ch=(p.head||0)<=CHOKE;
+  return `<tr data-a="${p.a}" class="${me?'me ':''}${ch?'choked':''}" style="cursor:pointer">
+    <td class="num">${short(p.a)}${me?" ← you":""}${ch?" · choked":""}</td>
+    <td class="num">${p.bids||"—"}</td><td class="num">${p.models||"—"}</td>
+    <td class="num">${p.mn!=null?price(p.mn):"—"}</td>
+    <td class="num">${p.md!=null?price(p.md):"—"}</td>
+    <td class="num">${p.mx!=null?price(p.mx):"—"}</td>
+    <td class="num">${p.s10?int(p.s10):"—"}</td>
+    <td class="num">${p.sAll?int(p.sAll):"—"}</td>
+    <td class="num">${mor(p.stake)}</td>
+    <td class="num">${mor(p.head)}</td></tr>`;
+};
+
+const t=document.getElementById("t");
+let draw=sortable(t, contend, rowHTML, "s10", -1);
+const apply=()=>{
+  const q=(document.getElementById("q").value||"").toLowerCase().trim();
+  const f=document.querySelector('input[name=f]:checked').value;
+  let r = f==="all" ? rows : (f==="choked" ? choked : contend);
+  if(q) r=r.filter(p=>p.a.toLowerCase().includes(q));
+  draw=sortable(t, r, rowHTML, "s10", -1);
+  document.getElementById("cnt").textContent=`${r.length} shown`;
+};
+document.getElementById("q").addEventListener("input",apply);
+document.querySelectorAll('input[name=f]').forEach(e=>e.addEventListener("change",apply));
+apply();
+
+/* click an address -> its full per-model breakdown */
+t.addEventListener("click",e=>{
+  const tr=e.target.closest("tr[data-a]"); if(!tr) return;
+  const p=rows.find(x=>x.a===tr.dataset.a); if(!p) return;
+  const d=document.getElementById("detail");
+  const days=p.createdAt? (Date.now()/1000-p.createdAt)/86400 : null;
+  const earning=(p.rows||[]).filter(r=>r.s>0).length;
+  const cards=[
+    card("Registered", p.createdAt? new Date(p.createdAt*1000).toLocaleDateString(undefined,{month:"2-digit",day:"2-digit",year:"2-digit"}):"—",
+         days? Math.round(days)+" days ago":"—","time"),
+    card("Headroom", mor(p.head), p.head<=CHOKE?"CHOKED — cannot be paid":"MOR still earnable",
+         p.head<=CHOKE?"choke":"hold"),
+    card("Staked", mor(p.stake), "MOR now","hold"),
+    card("Earned", mor(p.earned), "since registering","earn"),
+    card("Active bids", p.bids, "on "+p.models+" models","earn"),
+    card("Earning bids", earning, p.bids? pct(100*earning/p.bids,0)+" took work":"—","earn"),
+    card("Median bid", p.md!=null?price(p.md):"—", "MOR / day","earn"),
+    card("Sessions "+C.windowDays+"d", int(p.s10),
+         C.sessionsWindow? pct(100*p.s10/C.sessionsWindow,1)+" of network":"—","earn"),
+    card("Sessions all-time", int(p.sAll),
+         C.sessionsNetwork? pct(100*p.sAll/C.sessionsNetwork,1)+" of network":"—","earn"),
+  ].join("");
+  const list=(p.rows||[]).slice(0,400);
+  d.innerHTML=`<div style="padding:14px 16px;border-top:1px solid var(--rule-2);background:var(--raised)">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+      <b class="num">${p.a}</b><button id="close">Close</button></div>
+    <div class="grid" style="margin:12px 0">${cards}</div>
+    <div class="scroll" style="max-height:420px;overflow-y:auto">
+      <table style="min-width:420px"><thead><tr>
+        <th>Model</th><th class="num">MOR / day</th><th class="num">Sessions ${C.windowDays}d</th>
+      </tr></thead><tbody>
+      ${list.map(r=>`<tr><td>${r.n}</td><td class="num">${price(r.p)}</td>
+        <td class="num">${r.s||"—"}</td></tr>`).join("") ||
+        `<tr><td colspan="3" class="sub">no live bids</td></tr>`}
+      </tbody></table></div></div>`;
+  document.getElementById("close").onclick=()=>{d.innerHTML="";};
+  d.scrollIntoView({behavior:"smooth",block:"nearest"});
+});
+}
+</script>

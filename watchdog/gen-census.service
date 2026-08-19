@@ -1,0 +1,17 @@
+[Unit]
+Description=Rebuild the public bid-market census
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/morpheus/census
+Environment=HISTORY_DB=/root/morpheus/census/history.db
+Environment=CENSUS_FULL=/root/morpheus/census/census-full.json
+Environment=PROVIDER_ADDRESS=0x2f144f3b192a2d2d2384de7007ee2cad943c601b
+# keep history.db current first — otherwise the "10-day window" silently
+# slides backwards as the database ages
+ExecStart=/usr/bin/python3 /root/morpheus/census/refresh_history.py
+ExecStart=/usr/bin/python3 /root/morpheus/census/gen_census.py
+# then push it to the public repo
+ExecStartPost=/root/morpheus/census/publish.sh
+TimeoutStartSec=3600

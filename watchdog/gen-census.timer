@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily public census rebuild
+Requires=gen-census.service
+
+[Timer]
+# 05:17 UTC — off the hour, and before the old 06:17 census slot so the two
+# never overlap on the same RPC endpoints.
+OnCalendar=*-*-* 05:17:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=gen-census.service
+
+[Install]
+WantedBy=timers.target
