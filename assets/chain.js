@@ -1,7 +1,9 @@
 /* Shared chain-read + formatting helpers.
    Reads Base mainnet directly from the browser — no server, no key, nothing stored. */
 
-export const ADDR    = "0x2f144F3b192A2d2D2384de7007EE2cAd943C601b";
+// No operator address on the public build. The market pages describe the whole
+// network; naming one participant would tie a person to an address in a way the
+// chain itself does not.
 export const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
 export const MOR     = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
 

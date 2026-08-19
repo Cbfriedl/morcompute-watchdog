@@ -19,7 +19,6 @@
     <div class="toolbar">
       <input type="search" id="q" placeholder="filter model or tag…">
       <label class="chkl"><input type="radio" name="f" value="all" checked> all</label>
-      <label class="chkl"><input type="radio" name="f" value="mine"> mine</label>
       <label class="chkl"><input type="radio" name="f" value="demand"> has demand</label>
       <label class="chkl"><input type="radio" name="f" value="live"> a bidder has headroom</label>
       <label class="chkl"><input type="radio" name="f" value="open"> nobody has headroom</label>
@@ -34,8 +33,7 @@
         <th data-k="mn" class="num">Cheapest</th>
         <th data-k="md" class="num">Median</th>
         <th data-k="mx" class="num">Dearest</th>
-        <th data-k="myPrice" class="num">Your bid</th>
-        <th class="num">vs cheapest</th>
+
       </tr></thead><tbody></tbody>
     </table></div>
     <div id="drill"></div>
@@ -45,11 +43,11 @@
 </div>
 
 <script type="module">
-import {ADDR,DIAMOND,pad,W,call,fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+import {fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
 document.getElementById("navslot").innerHTML = nav("models.html");
-const ME = ADDR.toLowerCase();
 
-const C = await (async()=>{ try{ return await (await fetch("census.json?cb="+Date.now())).json(); }
+
+const C = await (async()=>{ try{ return await (await fetch("census-full.json?cb="+Date.now())).json(); }
                             catch(e){ return null; } })();
 if(!C){ document.getElementById("asof").textContent="census not published yet"; }
 else {
@@ -60,53 +58,29 @@ if(C.models?.[0] && C.models[0].s10==null){
     "<i>Sessions 10d</i> column and the demand filter are unavailable.";
 }
 
-/* Your own bids come from CHAIN, not from the census. The census is a daily
-   snapshot and its `pv` field (per-model bidder list) is absent from older
-   builds — but your position must always be correct, so read it live. */
-const MYBIDS = await (async()=>{
-  try{
-    const w = W(await call(DIAMOND,"0xaf5b77ca"+pad(ADDR)+
-      (0).toString(16).padStart(64,"0")+(200).toString(16).padStart(64,"0")));
-    const o=parseInt(w[0],16)/32, n=parseInt(w[o],16);
-    const out={};
-    await Promise.all(Array.from({length:n},(_,i)=>"0x"+w[o+1+i]).map(async id=>{
-      const r=W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
-      out["0x"+r[1]] = Number(BigInt("0x"+r[2]))*86400/1e18;
-    }));
-    return out;
-  }catch(e){ return {}; }
-})();
-
-const rows = (C.models||[]).map(m=>({
-  ...m,
-  myPrice: MYBIDS[m.id] ?? null,
-  pv: m.pv || null,          // per-model bidder list; absent in older censuses
-}));
+const rows = (C.models||[]).map(m=>({...m, pv: m.pv || null}));
 const mine = rows.filter(r=>r.myPrice!=null);
 const withDemand = rows.filter(r=>(r.s10||0)>0);
 
 document.getElementById("cards").innerHTML = [
-  card("Models with bids", int(rows.length), "of "+int(C.activeModels)+" registered","time"),
-  card("You bid on", int(mine.length), mine.length? pct(100*mine.length/rows.length,1)+" of the market":"—","earn"),
-  card("Saw demand, 10d", int(withDemand.length),
-       rows.length? pct(100*withDemand.length/rows.length,0)+" of listed models":"—","earn"),
-  card("Demand you cover", int(mine.filter(r=>(r.s10||0)>0).length),
-       withDemand.length? "of "+withDemand.length+" models with demand":"—","earn"),
-  card("Sessions you could reach", int(mine.reduce((a,r)=>a+(r.s10||0),0)),
-       C.sessions10d? pct(100*mine.reduce((a,r)=>a+(r.s10||0),0)/C.sessions10d,0)+" of network 10d":"—","earn"),
-  card("Median price, all models", price(C.p50), "MOR / day","hold"),
+  card("Registered models", int(C.registeredModels), "on chain, network wide","time"),
+  card("Models with bids", int(rows.length), pct(100*rows.length/C.registeredModels,0)+" of registered","time"),
+  card("Live bids", int(C.totalBids), "across all providers","earn"),
+  card("Saw demand, "+C.windowDays+"d", int(rows.filter(r=>(r.s10||0)>0).length),
+       "models that took a session","earn"),
+  card("Sessions, "+C.windowDays+"d", int(C.sessionsWindow),
+       fmt(C.sessionsWindow/C.windowDays,0)+" / day","earn"),
+  card("Median bid price", price(C.p50), "MOR / day","hold"),
 ].join("");
 
 const rowHTML = r=>{
-  const me = r.myPrice!=null;
-  const vsFloor = (me && r.mn) ? r.myPrice/r.mn : null;
-  return `<tr data-id="${r.id}" class="${me?'me':''}" style="cursor:pointer">
+
+  return `<tr data-id="${r.id}" style="cursor:pointer">
     <td>${r.n}${r.t?`<br><span class="sub" style="font-size:11px">${r.t.replace(/\|/g," · ")}</span>`:""}</td>
     <td class="num">${r.s10? int(r.s10) : (r.s10===0? "0":"—")}</td>
     <td class="num">${r.b}</td><td class="num">${r.p}</td>
     <td class="num">${price(r.mn)}</td><td class="num">${price(r.md)}</td><td class="num">${price(r.mx)}</td>
-    <td class="num">${me? price(r.myPrice) : "—"}</td>
-    <td class="num">${vsFloor!=null? (vsFloor<=1.0001? "floor" : fmt(vsFloor,2)+"×") : "—"}</td></tr>`;
+    </tr>`;
 };
 
 const t=document.getElementById("t");
@@ -116,7 +90,6 @@ const apply=()=>{
   const f=document.querySelector('input[name=f]:checked').value;
   let r=rows;
   if(q) r=r.filter(m=>m.n.toLowerCase().includes(q)||(m.t||"").toLowerCase().includes(q));
-  if(f==="mine")   r=r.filter(m=>m.myPrice!=null);
   if(f==="demand") r=r.filter(m=>(m.s10||0)>0);
   if(f==="live")   r=r.filter(m=>m.live===1);
   if(f==="open")   r=r.filter(m=>m.live===0);
@@ -137,7 +110,7 @@ t.addEventListener("click",e=>{
     d.innerHTML=`<div style="padding:14px 16px;border-top:1px solid var(--rule-2);background:var(--raised)">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <b>${m.n}</b>
-        <span class="sub">${m.b} bids · ${m.p} providers · prices ${price(m.mn)}–${price(m.mx)}${m.myPrice!=null? " · yours "+price(m.myPrice):""}</span>
+        <span class="sub">${m.b} bids · ${m.p} providers · prices ${price(m.mn)}–${price(m.mx)}</span>
         <button id="close">Close</button></div>
       <div class="sub" style="margin-top:8px">Per-bidder breakdown is not in this census build —
         it needs the <span class="mono">pv</span> field, which the next full census run will include.</div></div>`;
@@ -152,7 +125,7 @@ t.addEventListener("click",e=>{
     <div class="scroll"><table style="min-width:380px"><thead><tr>
       <th>Provider</th><th class="num">MOR / day</th><th class="num">vs cheapest</th></tr></thead><tbody>
       ${bidders.map(([a,p],i)=>{
-        const me=String(a).toLowerCase()===ME;
+        const me=false;
         const mult=bidders[0][1]? p/bidders[0][1] : 1;
         return `<tr class="${me?'me':''}"><td class="num">${short(String(a))}${me?" ← you":""}${i===0?" · cheapest":""}</td>
           <td class="num">${price(p)}</td>

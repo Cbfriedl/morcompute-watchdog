@@ -61,11 +61,11 @@
 </div>
 
 <script type="module">
-import {ADDR,fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+import {fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
 document.getElementById("navslot").innerHTML = nav("index.html");
-const ME = ADDR.toLowerCase();
+const ME = "";
 
-const C = await (async()=>{ try{ return await (await fetch("census.json?cb="+Date.now())).json(); }
+const C = await (async()=>{ try{ return await (await fetch("census-full.json?cb="+Date.now())).json(); }
                             catch(e){ return null; } })();
 
 if(!C){
@@ -92,7 +92,7 @@ if(!C){
     w.innerHTML += `<br><b>It is also ${fmt(ageH/24,1)} days old</b> — the daily job may not be running.`;
   }
 
-  const P = Array.isArray(C.providers) ? C.providers : [];
+  const P = Object.entries(C.pdetail||{}).map(([a,p])=>({a,...p}));
   const live = P.filter(p=>!p.deleted);
   // "contending" = has headroom, therefore can actually be paid and can
   // actually outbid you. Choked providers are counted, never compared: they
@@ -101,7 +101,7 @@ if(!C){
   const contend = live.filter(p=>(p.head||0) > CHOKE);
   const choked  = live.filter(p=>(p.head||0) <= CHOKE);
   const cards = [
-    card("Registered models", int(C.registeredModels ?? C.activeModels), "on chain, network wide","time"),
+    card("Registered models", int(C.registeredModels), "on chain, network wide","time"),
     card("Models with bids", int(C.modelsWithBids), "at least one live listing","time"),
     card("Total live bids", int(C.totalBids), "across all providers","time"),
   ];
@@ -120,10 +120,10 @@ if(!C){
       card("Earned by contenders", mor(contend.reduce((a,p)=>a+(p.earned||0),0)),
            "MOR, all time","earn"));
   }
-  if(C.sessions10d!=null)
-    cards.push(card("Sessions, 10d", int(C.sessions10d), fmt(C.sessions10d/10,0)+" / day","earn"));
-  if(C.sessionsAllTime!=null)
-    cards.push(card("Sessions, all time", int(C.sessionsAllTime), "network wide","earn"));
+  if(C.sessionsWindow!=null)
+    cards.push(card("Sessions, 10d", int(C.sessionsWindow), fmt(C.sessionsWindow/10,0)+" / day","earn"));
+  if(C.sessionsNetwork!=null)
+    cards.push(card("Sessions, all time", int(C.sessionsNetwork), "network wide","earn"));
   cards.push(
     card("Median bid price", price(C.p50), "MOR / day","earn"),
     card("Cheapest decile", price(C.p10), "10th percentile","earn"),
