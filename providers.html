@@ -48,7 +48,9 @@ const C = await (async()=>{ try{ return await (await fetch("census-full.json?cb=
                             catch(e){ return null; } })();
 if(!C){ document.getElementById("asof").textContent="census not published yet"; }
 else {
-const ME=(C.youAre||"").toLowerCase();
+// No "youAre" on the public build: nothing on chain says which address belongs
+// to whom, and naming it here would create a link the chain does not.
+const ME="";
 const CHOKE=0.5;
 document.getElementById("asof").textContent =
   `census ${C.asOf} ${C.asOfTime} · ${C.windowDays}-day session window`;

@@ -173,7 +173,9 @@ doc={
  "asOf": now.strftime("%Y-%m-%d"), "asOfTime": now.strftime("%H:%M UTC"),
  "sessionsAsOf": datetime.fromtimestamp(hi,timezone.utc).isoformat(timespec="seconds"),
  "windowDays": WINDOW,
- "youAre": ME,
+ # Only the private build names the operator's address. Publishing it would
+ # tie a person to an address in a way the chain itself does not.
+ **({"youAre": ME} if os.environ.get("CENSUS_INCLUDE_SELF")=="1" else {}),
  "registeredModels": len(mids), "modelsWithBids": len(models),
  "totalBids": sum(len(v) for v in bids.values()),
  "biddingAddresses": len({x["p"] for v in bids.values() for x in v}),

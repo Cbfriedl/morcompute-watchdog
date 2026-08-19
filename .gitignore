@@ -12,3 +12,6 @@ margin.json
 margin-state.json
 reputation.json
 private/
+
+# personal position history — the private dashboard only
+snapshots.jsonl

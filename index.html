@@ -1,316 +1,233 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Morpheus Provider Metrics</title>
+<title>Morpheus Market</title>
 <link rel="stylesheet" href="assets/style.css">
 
 <div class="wrap">
   <div class="masthead">
     <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
-    <div>
-      <h1>Morpheus Provider Metrics</h1>
-      <div class="sub num" id="who">—</div>
-    </div>
+    <div><h1>Market</h1><div class="sub" id="asof">loading census…</div></div>
   </div>
   <div id="navslot"></div>
-
-  <div class="err" id="err"></div>
-
-  <div class="statusbar">
-    <span class="pill mu" id="p-active"><span class="d"></span>loading</span>
-    <span class="pill mu" id="p-bids"><span class="d"></span>bids</span>
-    <span class="pill mu" id="p-gas"><span class="d"></span>gas</span>
-    <span class="pill mu" id="p-up"><span class="d"></span>uptime</span>
-    <span style="margin-left:auto;display:flex;gap:10px;align-items:center">
-      <span class="sub num" id="updated">—</span>
-      <button id="refresh">Refresh</button>
-    </span>
-  </div>
+  <div class="warnbox" id="stale" style="display:none"></div>
 
   <div class="grid" id="cards"></div>
 
-  <div class="chartbox" id="trendbox" style="display:none">
-    <h2>Earnings &amp; sessions over time</h2>
-    <div class="note" id="trendnote"></div>
-    <svg id="trend" viewBox="0 0 1000 190" preserveAspectRatio="none" style="height:190px"></svg>
+  <div class="chartbox">
+    <h2>Where bid prices sit</h2>
+    <div class="note">Every live bid on the network, log-scaled. Your bids marked in green.</div>
+    <svg id="hist" viewBox="0 0 1000 230" style="height:230px"></svg>
   </div>
 
-  <div class="tbl" id="repbox" style="display:none">
-    <h2><span>Reputation by model</span><span class="note" id="repnote"></span></h2>
-    <div class="scroll"><table id="reptable">
+  <div class="tbl" id="dormbox" style="display:none">
+    <h2><span>Dormant — choked, but with history</span>
+        <span class="note" id="dormnote"></span></h2>
+    <div style="padding:0 16px 10px" class="sub" id="dormlead"></div>
+    <div class="scroll"><table id="dorm">
       <thead><tr>
-        <th data-k="name">Model</th>
-        <th data-k="rank" class="num">Rank</th>
-        <th data-k="myPrice" class="num">Your bid</th>
-        <th data-k="myScore" class="num">Your reputation</th>
-        <th data-k="rivalScore" class="num">Rival reputation</th>
-        <th data-k="lead" class="num">Lead</th>
+        <th data-k="a">Address</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="couldReturn" class="num">Headroom if it re-stakes</th>
       </tr></thead><tbody></tbody></table></div>
   </div>
 
   <div class="tbl">
-    <h2><span>Active bids</span><span class="note" id="bidnote"></span></h2>
-    <div class="scroll"><table id="bidtable">
+    <h2><span>Providers</span><span class="note" id="pvnote"></span></h2>
+    <div class="toolbar">
+      <input type="search" id="pvf" placeholder="filter address…">
+      <label class="chkl"><input type="checkbox" id="pvEarn"> only those earning</label>
+      <label class="chkl"><input type="checkbox" id="pvChoke"> include choked</label>
+      <span class="count" id="pvcount"></span>
+    </div>
+    <div class="scroll"><table id="pvtable">
       <thead><tr>
-        <th data-k="name">Model</th>
-        <th data-k="day" class="num">MOR / day</th>
-        <th data-k="sessions" class="num">Sessions</th>
-        <th data-k="mor" class="num">MOR earned</th>
-        <th data-k="perSession" class="num">MOR / session</th>
-        <th data-k="usd" class="num">~$ / day</th>
-      </tr></thead><tbody><tr><td colspan="6">loading…</td></tr></tbody>
+        <th data-k="a">Address</th>
+        <th data-k="stake" class="num">Staked</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="head" class="num">Headroom</th>
+        <th data-k="pct" class="num">Earned / staked</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+      </tr></thead><tbody></tbody>
     </table></div>
   </div>
 
   <footer>
-    Reads Base mainnet directly from your browser — no server, no key, nothing stored.<br>
-    Diamond <span class="num">0x6aBE1d28…3030a</span> · auto-refresh 60s ·
-    <a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a><br>
-    <span id="pricenote"></span>
+    Market data from the daily census · your own position is on the private dashboard<br>
+    <a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a>
   </footer>
 </div>
 
 <script type="module">
-import {ADDR,DIAMOND,MOR,pad,W,rpc,call,decodeStr,fmt,int,mor,price,pct,day,ago,
-        nav,card,sortable,morUsd} from "./assets/chain.js";
-
-/* Declared before first use: the nav below reads PUBLIC_SITE, and a `const`
-   is in the temporal dead zone until its declaration is evaluated. */
-const PUBLIC_SITE = "https://cbfriedl.github.io/morcompute-watchdog/";
-
-// Reputation and margin are deliberately absent here. Reputation comes from the
-// router's rating endpoint, which is localhost-only; margin exposes OpenRouter
-// spend, the one figure not already public on chain. Both live on the private
-// dashboard. Their tiles are omitted rather than shown empty.
-const REP = null, MARGIN = null;
-
+import {ADDR,fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
 document.getElementById("navslot").innerHTML = nav("index.html");
-document.getElementById("who").textContent = ADDR;
+const ME = ADDR.toLowerCase();
 
-// Headroom can never exceed capital contributed from OUTSIDE. Re-staking earnings
-// restores headroom but does not raise its ceiling. UPDATE when new outside MOR
-// is staked.
-const EXTERNAL_STAKE = 700;
-let USD = null;
+const C = await (async()=>{ try{ return await (await fetch("census.json?cb="+Date.now())).json(); }
+                            catch(e){ return null; } })();
 
-const SEL = {prov:"0x55f21eb7", active:"0x63ef175d", bids:"0xaf5b77ca",
-             bid:"0x91704e1e", model:"0x21e7c498", sess:"0x87bced7d", getSess:"0x39b240bd"};
+if(!C){
+  document.getElementById("asof").textContent = "census not published yet";
+} else {
+  const asOf = (C.asOf||"").slice(0,16).replace("T"," ");
+  const ageH = C.asOf ? (Date.now()-new Date(C.asOf).getTime())/3.6e6 : null;
+  document.getElementById("asof").textContent =
+    `census ${asOf} UTC` + (ageH!=null ? ` · ${ageH<48? fmt(ageH,0)+"h" : fmt(ageH/24,1)+"d"} old` : "");
 
-async function load(){
-  const err = document.getElementById("err");
-  try{
-    const [pRaw,actRaw,ethRaw,morRaw,bidRaw,sessRaw] = await Promise.all([
-      call(DIAMOND, SEL.prov+pad(ADDR)),
-      call(DIAMOND, SEL.active+pad(ADDR)),
-      rpc("eth_getBalance",[ADDR,"latest"]),
-      call(MOR, "0x70a08231"+pad(ADDR)),
-      call(DIAMOND, SEL.bids+pad(ADDR)+(0).toString(16).padStart(64,"0")+(200).toString(16).padStart(64,"0")),
-      call(DIAMOND, SEL.sess+pad(ADDR)+(0).toString(16).padStart(64,"0")+(5000).toString(16).padStart(64,"0")).catch(()=>null),
-    ]);
-    err.style.display="none";
+  // A partial census is the failure mode that has actually happened: the run
+  // wrote models and bids but never reached the session scan or provider
+  // snapshot. Say so plainly rather than rendering blanks.
+  const missing = ["providers","registeredModels","activeProviders","zeroHeadroom","sessions10d"]
+    .filter(k => C[k]==null || (k==="providers" && !Array.isArray(C[k])));
+  if(missing.length){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML = `<b>This census is incomplete.</b> The run finished the model and bid scan but not
+      the session or provider stages, so these are unavailable: <span class="mono">${missing.join(", ")}</span>.
+      Cards and tables below that depend on them are hidden rather than shown as zero.`;
+  }
+  if(ageH!=null && ageH>36){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML += `<br><b>It is also ${fmt(ageH/24,1)} days old</b> — the daily job may not be running.`;
+  }
 
-    const w=W(pRaw), b=parseInt(w[0],16)/32;
-    const endpoint  = decodeStr(w, b+parseInt(w[b],16)/32);
-    const stake     = Number(BigInt("0x"+w[b+1]))/1e18;
-    const createdAt = parseInt(w[b+2],16);
-    const periodEnd = parseInt(w[b+3],16);
-    const earned    = Number(BigInt("0x"+w[b+4]))/1e18;
-    const deleted   = parseInt(w[b+5],16)===1;
-    const active    = parseInt(actRaw,16)===1;
-    const eth       = Number(BigInt(ethRaw))/1e18;
-    const morBal    = Number(BigInt("0x"+W(morRaw)[0]))/1e18;
-    const headroom  = stake - earned;
-    const ageDays   = createdAt ? (Date.now()/1000-createdAt)/86400 : null;
+  const P = Array.isArray(C.providers) ? C.providers : [];
+  const live = P.filter(p=>!p.deleted);
+  // "contending" = has headroom, therefore can actually be paid and can
+  // actually outbid you. Choked providers are counted, never compared: they
+  // take no sessions until they claim and re-stake.
+  const CHOKE = 0.5;
+  const contend = live.filter(p=>(p.head||0) > CHOKE);
+  const choked  = live.filter(p=>(p.head||0) <= CHOKE);
+  const cards = [
+    card("Registered models", int(C.registeredModels ?? C.activeModels), "on chain, network wide","time"),
+    card("Models with bids", int(C.modelsWithBids), "at least one live listing","time"),
+    card("Total live bids", int(C.totalBids), "across all providers","time"),
+  ];
+  if(live.length){
+    const earners = contend.filter(p=>p.earned>0).length;
+    cards.push(
+      card("Contending providers", int(contend.length),
+           "have headroom — can be paid","hold"),
+      card("Choked", int(choked.length),
+           choked.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none",
+           "choke"),
+      card("Have ever earned", int(earners),
+           contend.length? pct(100*earners/contend.length,0)+" of contenders":"—","earn"),
+      card("Staked by contenders", mor(contend.reduce((a,p)=>a+(p.stake||0),0)),
+           "MOR that can still earn","hold"),
+      card("Earned by contenders", mor(contend.reduce((a,p)=>a+(p.earned||0),0)),
+           "MOR, all time","earn"));
+  }
+  if(C.sessions10d!=null)
+    cards.push(card("Sessions, 10d", int(C.sessions10d), fmt(C.sessions10d/10,0)+" / day","earn"));
+  if(C.sessionsAllTime!=null)
+    cards.push(card("Sessions, all time", int(C.sessionsAllTime), "network wide","earn"));
+  cards.push(
+    card("Median bid price", price(C.p50), "MOR / day","earn"),
+    card("Cheapest decile", price(C.p10), "10th percentile","earn"),
+    card("At the ceiling", int(C.atCeiling), "bids at 864 MOR/day","time"));
+  document.getElementById("cards").innerHTML = cards.join("");
 
-    document.getElementById("who").textContent = ADDR + " · " + (endpoint||"—");
+  /* ---- price distribution, log bins ---- */
+  const px = (C.models||[]).flatMap(m=>m.px||[]).filter(v=>v>0);
+  const mine = new Set((C.models||[]).flatMap(m=>(m.pv||[])
+      .filter(v=>String(v[0]).toLowerCase()===ME || v[0]===ME).map(v=>v[1])));
+  if(px.length){
+    const lo=Math.log10(Math.min(...px)), hi=Math.log10(Math.max(...px)), NB=16;
+    const bins=Array.from({length:NB},(_,i)=>({c:0,mine:0,
+      lo:Math.pow(10,lo+(hi-lo)*i/NB), hi:Math.pow(10,lo+(hi-lo)*(i+1)/NB)}));
+    px.forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); bins[i].c++; });
+    [...mine].forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); if(bins[i]) bins[i].mine++; });
+    const W=1000,H=230,P_={l:44,r:14,t:14,b:44};
+    const raw=Math.max(...bins.map(b=>b.c),1), max=Math.ceil(raw/10)*10;
+    const bw=(W-P_.l-P_.r)/NB;
+    const y=v=>H-P_.b-(H-P_.t-P_.b)*(v/max);
+    document.getElementById("hist").innerHTML =
+      `<line x1="${P_.l}" y1="${y(max)}" x2="${W-P_.r}" y2="${y(max)}" stroke="var(--rule)"/>
+       <text x="${P_.l-6}" y="${y(max)+4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${max}</text>
+       <line x1="${P_.l}" y1="${H-P_.b}" x2="${W-P_.r}" y2="${H-P_.b}" stroke="var(--rule-2)"/>` +
+      bins.map((b,i)=>{
+        const x=P_.l+i*bw, h=(H-P_.b)-y(b.c);
+        const col = b.mine? "var(--accent)" : "var(--c-hold-ink)";
+        return (b.c? `<rect x="${x+1.5}" y="${y(b.c)}" width="${bw-3}" height="${Math.max(h,1)}"
+                  fill="${col}" rx="3"/>
+                <text x="${x+bw/2}" y="${y(b.c)-4}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.c}</text>`:"") +
+          (i%3===0? `<text x="${x+bw/2}" y="${H-P_.b+15}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.lo<1? b.lo.toFixed(2):Math.round(b.lo)}</text>`:"");
+      }).join("") +
+      `<text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--ink-3)">
+        bid price, MOR/day (log scale) — <tspan fill="var(--accent)">green = a bin containing one of your bids</tspan></text>`;
+  }
 
-    // --- bids (from chain: the router's own endpoint silently caps at 10) ---
-    const bw=W(bidRaw), bo=parseInt(bw[0],16)/32, nb=parseInt(bw[bo],16);
-    const bidIds = Array.from({length:nb},(_,i)=>"0x"+bw[bo+1+i]);
+  /* ---- dormant: choked, but with real history ----
+     Ranked by what they could re-stake, not by past volume. Re-staking restores
+     headroom one-for-one with the amount staked, so a provider that earned
+     9,882 MOR can return with 9,882 MOR of headroom, while one that earned
+     1 MOR cannot come back at any scale without fresh outside capital.
+     Past session count says who they WERE; claimable earnings says who they
+     could be tomorrow. */
+  const dorm = choked.filter(p=>(p.sAll||0)>0)
+    .map(p=>({...p, couldReturn: p.earned||0}))
+    .sort((a,b)=>b.couldReturn-a.couldReturn);
+  if(dorm.length){
+    document.getElementById("dormbox").style.display="";
+    const totS = dorm.reduce((a,p)=>a+(p.sAll||0),0);
+    const totR = dorm.reduce((a,p)=>a+p.couldReturn,0);
+    const big  = dorm.filter(p=>p.couldReturn>=100);
+    document.getElementById("dormnote").textContent =
+      `${dorm.length} of ${choked.length} choked have run sessions before`;
+    document.getElementById("dormlead").innerHTML =
+      `These cannot take sessions today — zero headroom means they cannot be paid. But choking is
+       reversible: claiming and re-staking restores headroom one-for-one. Between them they have run
+       <b>${int(totS)}</b> sessions and could return with <b>${mor(totR)} MOR</b> of headroom without
+       adding a penny of new capital.` +
+      (big.length ? ` <b>${big.length}</b> could return at meaningful scale (≥100 MOR); the rest would
+       need fresh outside capital to matter.` : ` None could return at meaningful scale without new capital.`);
+    sortable(document.getElementById("dorm"), dorm, p=>{
+      const heavy = p.couldReturn>=100;
+      return `<tr${heavy?' class="choked"':''}>
+        <td class="num">${short(p.a)}${heavy?" · could return big":""}</td>
+        <td class="num">${int(p.sAll)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.couldReturn)}</td></tr>`;
+    }, "couldReturn", -1);
+  }
 
-    // --- sessions: ALL of them, not a capped tail ---
-    let sessIds=[];
-    if(sessRaw){ const sw=W(sessRaw), so=parseInt(sw[0],16)/32, sn=parseInt(sw[so],16);
-      sessIds = Array.from({length:sn},(_,i)=>"0x"+sw[so+1+i]); }
-
-    const perBid={}, morBid={}; let openN=0; let firstSess=Infinity;
-    const CHUNK=25;
-    for(let i=0;i<sessIds.length;i+=CHUNK){
-      await Promise.all(sessIds.slice(i,i+CHUNK).map(async sid=>{
-        try{
-          const r=W(await call(DIAMOND, SEL.getSess+sid.slice(2)));
-          const bid="0x"+r[2];
-          perBid[bid]=(perBid[bid]||0)+1;
-          morBid[bid]=(morBid[bid]||0)+Number(BigInt("0x"+r[6]))/1e18;
-          if(!parseInt(r[9],16)) openN++;
-          const op=parseInt(r[7],16); if(op) firstSess=Math.min(firstSess,op);
-        }catch(e){}
-      }));
-    }
-
-    const rows = await Promise.all(bidIds.map(async id=>{
-      const r=W(await call(DIAMOND, SEL.bid+id.slice(2)));
-      const perDay=Number(BigInt("0x"+r[2]))*86400/1e18;
-      let name="—";
-      try{ const m=W(await call(DIAMOND, SEL.model+r[1]));
-        const base=parseInt(m[0],16)/32;
-        name=decodeStr(m, base+parseInt(m[base+4],16)/32)||"(unnamed)"; }catch(e){ name="(lookup failed)"; }
-      const s=perBid[id]||0, mo=morBid[id]||0;
-      return {name, day:perDay, sessions:s, mor:mo,
-              perSession: s? mo/s : 0, usd: USD? perDay*USD.usd : null};
-    }));
-    const replaced = Object.keys(perBid).filter(b=>!bidIds.includes(b))
-      .reduce((a,b)=>({s:a.s+perBid[b], m:a.m+morBid[b]}),{s:0,m:0});
-
-    const earningBids = rows.filter(r=>r.sessions>0).length;
-    const prices = rows.map(r=>r.day).sort((a,b)=>a-b);
-    const med = prices.length ? (prices.length%2 ? prices[(prices.length-1)/2]
-                : (prices[prices.length/2-1]+prices[prices.length/2])/2) : null;
-    const earnDays = isFinite(firstSess) ? (Date.now()/1000-firstSess)/86400 : null;
-    const roi = EXTERNAL_STAKE ? 100*earned/EXTERNAL_STAKE : null;
-    const apr = (roi!=null && earnDays && earnDays>0.05) ? roi*365/earnDays : null;
-    // perDayEarn divides by time since the FIRST SESSION, not since registration:
-    // the node was registered long before it had a bid live, so provider age
-    // understates the actual earning rate several-fold.
-    const perDayEarn = earnDays && earnDays>0.05 ? earned/earnDays : null;
-
-    // --- rank tile: how many of my listings actually lead ---
-    let rankCard = "";     // reputation is private — see the box dashboard
-    // --- session margin: earned per session minus what it cost to serve ---
-    let marginCard = "";   // session margin is private — see the box dashboard
-
-    document.getElementById("cards").innerHTML = [
-      rankCard, marginCard,
-      card("Registration date", day(createdAt), ageDays? Math.round(ageDays)+" days ago":"—","time"),
-      card("Headroom", mor(headroom), headroom<=0.5?"CHOKED — re-stake":"MOR still earnable",
-           headroom<=0.5?"choke":"hold"),
-      card("Current stake", mor(stake), "MOR staked now","hold"),
-      card("Base stake", mor(EXTERNAL_STAKE), "MOR contributed, not recycled","hold"),
-      card("Total earned", mor(earned), "since registering","earn"),
-      card("Earned / day", mor(perDayEarn),
-           earnDays? "over "+fmt(earnDays,1)+"d of earning":"too early","earn"),
-      card("ROI on base stake", roi!=null? (roi<10? fmt(roi,2):int(roi))+"%":"—",
-           "earned ÷ contributed","earn"),
-      card("APR on base stake", apr!=null? (apr<10? fmt(apr,1):int(apr))+"%":"—",
-           earnDays? "annualised over "+fmt(earnDays,1)+"d of earning":"annualised","earn"),
-      card("Active bids", nb, "listings on offer","earn"),
-      card("Earning bids", earningBids,
-           nb? Math.round(100*earningBids/nb)+"% of listings took work":"—","earn"),
-      card("Median bid price", price(med), "MOR / day","earn"),
-      card("Sessions", int(sessIds.length), openN? openN+" still open":"all closed","earn"),
-      card("MOR / session", sessIds.length? fmt(earned/sessIds.length,4):"—","average","earn"),
-      card("Counter resets", periodEnd? Math.max(0,Math.floor((periodEnd*1000-Date.now())/86400000))+"d":"—",
-           periodEnd? new Date(periodEnd*1000).toISOString().slice(0,10):"—","time"),
-      card("Wallet gas", fmt(eth,5), "ETH on Base","hold"),
-      card("Wallet MOR", mor(morBal), USD? "≈ $"+fmt(morBal*USD.usd):"unstaked","hold"),
-    ].join("");
-
-    const setPill=(id,cls,txt)=>{const e=document.getElementById(id);
-      e.className="pill "+cls; e.innerHTML='<span class="d"></span>'+txt;};
-    setPill("p-active",(active&&!deleted)?"ok":"cr",(active&&!deleted)?"provider active":"NOT ACTIVE");
-    setPill("p-bids", nb?"ok":"wa", nb? nb+" active bid"+(nb>1?"s":""):"no bids — not earning");
-    setPill("p-gas", eth>=0.005?"ok":"cr", eth>=0.005?"gas ok":"gas low");
-
-    const tb=document.getElementById("bidtable");
-    sortable(tb, rows, r=>`<tr>
-        <td>${r.name}</td>
-        <td class="num">${price(r.day)}</td>
-        <td class="num">${r.sessions||"—"}</td>
-        <td class="num">${r.mor? fmt(r.mor,4):"—"}</td>
-        <td class="num">${r.perSession? fmt(r.perSession,4):"—"}</td>
-        <td class="num">${r.usd!=null? "$"+fmt(r.usd):"—"}</td></tr>`, "sessions", -1);
-    document.getElementById("bidnote").textContent =
-      `${sessIds.length} sessions attributed` + (replaced.s? ` · ${replaced.s} from replaced bids (${fmt(replaced.m,4)} MOR)`:"");
-
-    if(REP && REP.models && REP.models.length){
-      document.getElementById("repbox").style.display="";
-      const rows = REP.models.map(m=>({...m,
-        lead: (m.myScore && m.rivalScore) ? m.myScore/m.rivalScore : null}));
-      sortable(document.getElementById("reptable"), rows, r=>{
-        const lead = r.lead;
-        return `<tr class="${r.rank===1?'me':''}">
-          <td>${r.name} <span class="sub">#${r.rank??"?"} of ${r.of}</span></td>
-          <td class="num">${r.rank??"—"}</td>
-          <td class="num">${price(r.myPrice)}</td>
-          <td class="num">${r.myScore!=null? int(r.myScore):"—"}</td>
-          <td class="num">${r.rivalScore!=null? int(r.rivalScore):"—"}</td>
-          <td class="num">${lead!=null? (lead>=1? fmt(lead,2)+"× ahead" : fmt(1/lead,2)+"× behind") : "—"}</td>
-        </tr>`;}, "rank", 1);
-      document.getElementById("repnote").textContent =
-        `real scores from the router's rating endpoint · ${(REP.asOf||"").replace("T"," ").slice(0,16)} UTC`;
-    }
-
-    document.getElementById("updated").textContent = "updated "+new Date().toLocaleTimeString();
-  }catch(e){
-    err.style.display="block";
-    err.textContent = "Could not read the chain: "+(e.message||e)+
-      " — showing the last successful values. This page failing is NOT the same as your node failing.";
+  /* ---- providers table ---- */
+  const tb=document.getElementById("pvtable");
+  if(!live.length){
+    tb.closest(".tbl").style.display="none";
+  } else {
+    const row = p=>{
+      const me = p.a.toLowerCase()===ME;
+      const ch = (p.head||0) <= CHOKE;
+      return `<tr class="${me?'me ':''}${ch?'choked':''}">
+        <td class="num">${short(p.a)}${me?' ← you':''}${ch?' · must re-stake':''}</td>
+        <td class="num">${mor(p.stake)}</td><td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.head)}</td><td class="num">${pct(p.pct)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${p.sAll!=null? int(p.sAll):"—"}</td></tr>`;
+    };
+    let draw = sortable(tb, live, row, "earned", -1);
+    const apply=()=>{
+      const q=(document.getElementById("pvf").value||"").toLowerCase().trim();
+      const showChoked = document.getElementById("pvChoke").checked;
+      let rows = showChoked ? live : contend;
+      if(q) rows=rows.filter(p=>p.a.toLowerCase().includes(q));
+      if(document.getElementById("pvEarn").checked) rows=rows.filter(p=>p.earned>0);
+      draw = sortable(tb, rows, row, "earned", -1);
+      document.getElementById("pvcount").textContent =
+        `${rows.length} of ${showChoked? live.length : contend.length}` +
+        (showChoked? " (incl. choked)" : ` contending · ${choked.length} choked hidden`);
+    };
+    ["pvf","pvEarn","pvChoke"].forEach(id=>
+      document.getElementById(id).addEventListener("input",apply));
+    apply();
+    document.getElementById("pvnote").textContent = C.sessionsNote || "";
   }
 }
-
-async function loadUptime(){
-  try{
-    const d = await (await fetch("status.json?cb="+Date.now())).json();
-    const u = d.uptime_24h ?? d.uptime_7d;
-    const span = d.first_check ? (Date.now()/1000-d.first_check)/86400 : 0;
-    const e=document.getElementById("p-up");
-    e.className = "pill "+(d.last_ok?"ok":"cr");
-    e.innerHTML = `<span class="d"></span>${u==null?"—":fmt(u,2)+"%"} uptime · ${d.checks_total} probes`;
-  }catch(e){
-    const el=document.getElementById("p-up");
-    el.className="pill mu"; el.innerHTML='<span class="d"></span>awaiting first probe';
-  }
-}
-
-/* Trend from snapshots.jsonl — append-only, one JSON object per line. */
-async function loadTrend(){
-  let pts=[];
-  try{
-    const t = await (await fetch("snapshots.jsonl?cb="+Date.now())).text();
-    pts = t.trim().split("\n").filter(Boolean).map(l=>{ try{return JSON.parse(l)}catch(e){return null} })
-           .filter(Boolean);
-  }catch(e){ return; }
-  const box=document.getElementById("trendbox");
-  if(pts.length<2){
-    box.style.display="";
-    document.getElementById("trend").style.display="none";
-    document.getElementById("trendnote").textContent =
-      `Only ${pts.length} snapshot${pts.length===1?"":"s"} so far — the hourly job needs a few hours before a trend is meaningful.`;
-    document.getElementById("trend").innerHTML="";
-    return;
-  }
-  box.style.display="";
-  document.getElementById("trend").style.display="";
-  const t0=new Date(pts[0].ts).getTime(), t1=new Date(pts[pts.length-1].ts).getTime();
-  const spanH=(t1-t0)/3.6e6;
-  document.getElementById("trendnote").textContent =
-    `${pts.length} snapshots over ${spanH<48? fmt(spanH,1)+" hours" : fmt(spanH/24,1)+" days"}`;
-  const W_=1000,H=190,P={l:52,r:52,t:12,b:22};
-  const x=i=>P.l+(W_-P.l-P.r)*(pts.length<2?0:i/(pts.length-1));
-  const maxE=Math.max(...pts.map(p=>p.earned),0.001);
-  const maxS=Math.max(...pts.map(p=>p.sessionsTotal),1);
-  const yE=v=>H-P.b-(H-P.t-P.b)*(v/maxE);
-  const yS=v=>H-P.b-(H-P.t-P.b)*(v/maxS);
-  const path=(f,acc)=>pts.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+f(acc(p)).toFixed(1)).join(" ");
-  document.getElementById("trend").innerHTML = `
-    <line x1="${P.l}" y1="${H-P.b}" x2="${W_-P.r}" y2="${H-P.b}" stroke="var(--rule-2)"/>
-    <path d="${path(yS,p=>p.sessionsTotal)}" fill="none" stroke="var(--c-hold-ink)" stroke-width="2"/>
-    <path d="${path(yE,p=>p.earned)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
-    <text x="${P.l-6}" y="${P.t+10}" text-anchor="end" font-size="11" fill="var(--accent)">${mor(maxE)}</text>
-    <text x="${P.l-6}" y="${H-P.b}" text-anchor="end" font-size="11" fill="var(--ink-3)">0</text>
-    <text x="${W_-P.r+6}" y="${P.t+10}" font-size="11" fill="var(--c-hold-ink)">${int(maxS)}</text>
-    <text x="${P.l}" y="${H-6}" font-size="11" fill="var(--ink-3)">${new Date(t0).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit"})}</text>
-    <text x="${W_-P.r}" y="${H-6}" text-anchor="end" font-size="11" fill="var(--ink-3)">now</text>
-    <text x="${W_/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--ink-3)">
-      <tspan fill="var(--accent)">■</tspan> MOR earned   <tspan fill="var(--c-hold-ink)">■</tspan> sessions</text>`;
-}
-
-morUsd().then(u=>{
-  USD=u;
-  if(u) document.getElementById("pricenote").textContent =
-    `MOR ≈ $${u.usd.toFixed(4)} (${u.dex}, liquidity $${u.liq.toLocaleString()})`;
-  return load();
-});
-loadUptime(); loadTrend();
-document.getElementById("refresh").addEventListener("click", load);
-setInterval(load, 60000); setInterval(loadUptime, 60000); setInterval(loadTrend, 300000);
 </script>
