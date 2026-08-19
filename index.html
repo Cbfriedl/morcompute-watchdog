@@ -77,9 +77,6 @@ import {ADDR,DIAMOND,MOR,pad,W,rpc,call,decodeStr,fmt,int,mor,price,pct,day,ago,
    is in the temporal dead zone until its declaration is evaluated. */
 const PUBLIC_SITE = "https://cbfriedl.github.io/morcompute-watchdog/";
 
-/* Private-only feeds, written on this box and never published:
-     reputation.json — the router's real bid scores (localhost-only endpoint)
-     margin.json     — OpenRouter spend, the one number not on chain */
 // Reputation and margin are deliberately absent here. Reputation comes from the
 // router's rating endpoint, which is localhost-only; margin exposes OpenRouter
 // spend, the one figure not already public on chain. Both live on the private
@@ -177,29 +174,9 @@ async function load(){
     const perDayEarn = earnDays && earnDays>0.05 ? earned/earnDays : null;
 
     // --- rank tile: how many of my listings actually lead ---
-    let rankCard = "";
-    if(REP && REP.models && REP.models.length){
-      const M=REP.models, first=M.filter(m=>m.rank===1).length;
-      const ageM = REP.asOf ? Math.round((Date.now()-new Date(REP.asOf))/60000) : null;
-      rankCard = card("Ranked #1",
-        `${first}/${M.length}`,
-        `${(100*first/M.length).toFixed(1)}% of listings` + (ageM!=null? ` · ${ageM}m ago`:""),
-        first===M.length ? "earn" : (first/M.length>=0.7 ? "earn" : "time"));
-    }
+    let rankCard = "";     // reputation is private — see the box dashboard
     // --- session margin: earned per session minus what it cost to serve ---
-    let marginCard = "";
-    if(MARGIN && MARGIN.lifetime && MARGIN.lifetime.perSessionMarginUsd!=null){
-      const L=MARGIN.lifetime, R=MARGIN.sinceLastRun;
-      // prefer the marginal rate when available: early sessions ran at entry
-      // prices that no longer apply, so lifetime understates current margin
-      const use = (R && R.sessions>=5) ? R : L;
-      const m = use.perSessionMarginUsd;
-      marginCard = card("Session margin",
-        (m>=0?"+":"") + "$" + m.toFixed(5),
-        `$${use.perSessionEarnedUsd.toFixed(4)} earned − $${use.perSessionCostUsd.toFixed(4)} cost`
-          + (use===R? ` · last ${R.sessions} sessions` : " · lifetime"),
-        m>=0 ? "earn" : "choke");
-    }
+    let marginCard = "";   // session margin is private — see the box dashboard
 
     document.getElementById("cards").innerHTML = [
       rankCard, marginCard,
