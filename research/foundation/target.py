@@ -8,7 +8,7 @@ tpsScore floors at 0.24 because an absent mean sits far below the model mean.
 import json, os, sys
 import score as S
 
-ME = "0x2f144f3b192a2d2d2384de7007ee2cad943c601b"
+ME = os.environ.get("PROVIDER_ADDRESS","").lower()
 MINSTAKE = int(0.2*1e18)
 WSETS = {
   "even":    dict(tps=.2, ttft=.2, duration=.2, success=.2, stake=.2),

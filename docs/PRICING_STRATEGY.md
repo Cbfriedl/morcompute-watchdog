@@ -93,7 +93,7 @@ provider              MOR/day     score     quality
 0x666e6887...          1.5598    34893      0.6299
 0x6a00cef9...          2.9280    22364      0.7579
 0x010208ec...          4.5600    13432      0.7089
-0x2f144f3b... (us)     2.9000     7022      0.2357   ← every zero-history bid
+0xOURADDR… (us)     2.9000     7022      0.2357   ← every zero-history bid
 0xd3bdd21c...          3.1601     6444      0.2357   ← identical
 0xdc34045b...          3.1968     6370      0.2357   ← identical
 ```

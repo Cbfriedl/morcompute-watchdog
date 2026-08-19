@@ -12,7 +12,9 @@ import json, os, sqlite3, statistics, subprocess, sys, time, collections
 from datetime import datetime, timezone
 
 DIAMOND="0x6aBE1d282f72B474E54527D93b979A4f64d3030a"
-ME=os.environ.get("PROVIDER_ADDRESS","0x2f144f3b192a2d2d2384de7007ee2cad943c601b").lower()
+ME=os.environ.get("PROVIDER_ADDRESS", "").lower()
+if not ME:
+    raise SystemExit("PROVIDER_ADDRESS is not set. Export it, or add it to the EnvironmentFile named by the systemd unit.")
 HIST=os.environ.get("HISTORY_DB","/home/cbfriedl/Documents/Projects/morcompute-watchdog/history.db")
 OUT=os.environ.get("CENSUS_FULL","census-full.json")
 WINDOW=int(os.environ.get("WINDOW_DAYS","10"))
@@ -173,9 +175,7 @@ doc={
  "asOf": now.strftime("%Y-%m-%d"), "asOfTime": now.strftime("%H:%M UTC"),
  "sessionsAsOf": datetime.fromtimestamp(hi,timezone.utc).isoformat(timespec="seconds"),
  "windowDays": WINDOW,
- # Only the private build names the operator's address. Publishing it would
- # tie a person to an address in a way the chain itself does not.
- **({"youAre": ME} if os.environ.get("CENSUS_INCLUDE_SELF")=="1" else {}),
+ "youAre": ME,
  "registeredModels": len(mids), "modelsWithBids": len(models),
  "totalBids": sum(len(v) for v in bids.values()),
  "biddingAddresses": len({x["p"] for v in bids.values() for x in v}),

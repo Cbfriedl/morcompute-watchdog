@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import os
 import json, sys
 import score as S
 
 MID = sys.argv[1] if len(sys.argv)>1 else "0xc2c4b037ff12e0aa81178deac52aeed902b36189b9e6feae22b72324c9221130"
-ME  = "0x2f144f3b192a2d2d2384de7007ee2cad943c601b"
+ME  = os.environ.get("PROVIDER_ADDRESS","").lower()
 MINSTAKE = int(0.2*1e18)
 
 # weight sets: the buyer's config is not public, so test a spread and check the

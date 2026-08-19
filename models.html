@@ -1,138 +1,245 @@
+<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Morpheus Models</title>
-<link rel="stylesheet" href="assets/style.css">
+<title>Bids by model — Morpheus census</title>
+<meta name="description" content="Every Morpheus model carrying a live bid, with demand, value paid and the full price spread across its bidders.">
+<link rel="stylesheet" href="assets/pub.css">
 
 <div class="wrap">
-  <div class="masthead">
-    <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
-    <div><h1>Models</h1><div class="sub" id="asof">loading…</div></div>
-  </div>
+  <header>
+    <div class="eyebrow">Base mainnet · full chain census</div>
+    <h1>Bids by model</h1>
+    <p class="standfirst">
+      Every model carrying at least one active bid. Tick models to build a price
+      histogram from just those listings — useful for asking what
+      <em>this class</em> of model actually goes for. Click a row for its bidders.
+    </p>
+  </header>
+
   <div id="navslot"></div>
-  <div class="warnbox" id="stale" style="display:none"></div>
+  <div class="warnbox" id="err" style="display:none"></div>
 
-  <div class="grid" id="cards"></div>
-
-  <div class="tbl">
-    <h2><span>Every model with a live bid</span>
-        <span class="note">click a row for the bidders</span></h2>
-    <div class="toolbar">
-      <input type="search" id="q" placeholder="filter model or tag…">
-      <label class="chkl"><input type="radio" name="f" value="all" checked> all</label>
-      <label class="chkl"><input type="radio" name="f" value="demand"> has demand</label>
-      <label class="chkl"><input type="radio" name="f" value="live"> a bidder has headroom</label>
-      <label class="chkl"><input type="radio" name="f" value="open"> nobody has headroom</label>
-      <span class="count" id="cnt"></span>
-    </div>
-    <div class="scroll"><table id="t">
-      <thead><tr>
-        <th data-k="n">Model</th>
-        <th data-k="s10" class="num">Sessions 10d</th>
-        <th data-k="b" class="num">Bids</th>
-        <th data-k="p" class="num">Providers</th>
-        <th data-k="mn" class="num">Cheapest</th>
-        <th data-k="md" class="num">Median</th>
-        <th data-k="mx" class="num">Dearest</th>
-
-      </tr></thead><tbody></tbody>
-    </table></div>
-    <div id="drill"></div>
+  <div class="tfbar">
+    <span class="lbl">Timeframe</span>
+    <label class="chkl"><input type="radio" name="tf" value="d1"> today</label>
+    <label class="chkl"><input type="radio" name="tf" value="d10" checked> trailing 10 days</label>
+    <label class="chkl"><input type="radio" name="tf" value="all"> all time</label>
+    <span class="selcount" id="tfnote"></span>
   </div>
 
-  <footer><a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a></footer>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="filter by name or tag…" aria-label="Filter models">
+    <label class="chkl"><input type="radio" name="f" value="all" checked> all</label>
+    <label class="chkl"><input type="radio" name="f" value="demand"> has demand</label>
+    <label class="chkl"><input type="radio" name="f" value="paid"> has value</label>
+    <label class="chkl"><input type="radio" name="f" value="quiet"> no sessions</label>
+    <button id="sel-top">Select 10 most contested</button>
+    <button id="sel-none">Clear selection</button>
+    <span class="selcount" id="cnt"></span>
+  </div>
+
+  <div class="card" id="histcard" style="display:none">
+    <div class="plot" id="plot-sel"></div>
+    <p class="cap" id="selcap"></p>
+  </div>
+
+  <div class="tablewrap">
+    <table class="sortable" id="t">
+      <thead><tr>
+        <th class="chk"><input type="checkbox" id="selall" aria-label="Select all shown"></th>
+        <th data-k="n">Model<span class="ar">▲</span></th>
+        <th data-k="sessions">Sessions<span class="ar">▲</span></th>
+        <th data-k="value">Value paid<span class="ar">▲</span></th>
+        <th data-k="perSession">Per session<span class="ar">▲</span></th>
+        <th data-k="b">Bids<span class="ar">▲</span></th>
+        <th data-k="p">Providers<span class="ar">▲</span></th>
+        <th data-k="mn">Cheapest<span class="ar">▲</span></th>
+        <th data-k="md">Median<span class="ar">▲</span></th>
+        <th data-k="mx">Dearest<span class="ar">▲</span></th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+
+  <div class="pdetail" id="drill">
+    <div class="pdhead">
+      <span class="who mono" id="d-who">—</span>
+      <button class="pdclose" id="d-close">Close</button>
+    </div>
+    <div class="pdstats" id="d-stats"></div>
+    <div class="pdmodels">
+      <table>
+        <thead><tr><th>Bidder</th><th>Price, MOR/day</th><th>Stake</th><th>Headroom</th></tr></thead>
+        <tbody id="d-bids"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="cap">
+    Prices in MOR/day; median is across that model's own bids.
+    <strong>Value paid</strong> is the sum of <span class="mono">pricePerSecond × duration</span>
+    over every closed session on that model in the window — what buyers actually
+    spent, which is a very different ranking from session count alone.
+  </p>
+
+  <footer id="foot"></footer>
 </div>
+<div id="tip" role="status" aria-live="polite"></div>
 
 <script type="module">
-import {fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+import {DIAMOND,SELF_DEALT_MODEL,CHOKE,fmt,int,pct,mor,price,short,
+        nav,kpi,esc,census,wireTip,sortable,loghist} from "./assets/pub.js";
+
 document.getElementById("navslot").innerHTML = nav("models.html");
+let C;
+try { C = await census(); }
+catch(e){ const el=document.getElementById("err"); el.style.display="";
+  el.innerHTML="<b>Could not load census-full.json.</b> "+esc(e.message); throw e; }
 
+const PD = C.pdetail || {};
+let TF="d10";
+const K = { d1:["s1","mor1","today"], d10:["s10","mor10","trailing "+(C.windowDays||10)+" days"],
+            all:["sAll","morAll","all time"] };
+const tfLabel = () => K[TF][2];
 
-const C = await (async()=>{ try{ return await (await fetch("census-full.json?cb="+Date.now())).json(); }
-                            catch(e){ return null; } })();
-if(!C){ document.getElementById("asof").textContent="census not published yet"; }
-else {
-document.getElementById("asof").textContent = "census "+(C.asOf||"").slice(0,16).replace("T"," ")+" UTC";
-if(C.models?.[0] && C.models[0].s10==null){
-  const w=document.getElementById("stale"); w.style.display="";
-  w.innerHTML="<b>This census has no session data.</b> The run did not reach the session scan, so the "+
-    "<i>Sessions 10d</i> column and the demand filter are unavailable.";
+const sel = new Set();
+let rows = [], shown = [];
+
+function build(){
+  const [sk,mk] = K[TF];
+  rows = (C.models||[]).map(m=>{
+    const s = m[sk]||0, v = m[mk]||0;
+    return {...m, sessions:s, value:v, perSession: s? v/s : null,
+            selfDealt: m.id===SELF_DEALT_MODEL};
+  });
 }
 
-const rows = (C.models||[]).map(m=>({...m, pv: m.pv || null}));
-const mine = rows.filter(r=>r.myPrice!=null);
-const withDemand = rows.filter(r=>(r.s10||0)>0);
+function filtered(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const f = document.querySelector("input[name=f]:checked").value;
+  return rows.filter(r=>{
+    if(q && !((r.n||"").toLowerCase().includes(q) || (r.t||"").toLowerCase().includes(q))) return false;
+    if(f==="demand" && !r.sessions) return false;
+    if(f==="paid"   && !(r.value>0)) return false;
+    if(f==="quiet"  && r.sessions)  return false;
+    return true;
+  });
+}
 
-document.getElementById("cards").innerHTML = [
-  card("Registered models", int(C.registeredModels), "on chain, network wide","time"),
-  card("Models with bids", int(rows.length), pct(100*rows.length/C.registeredModels,0)+" of registered","time"),
-  card("Live bids", int(C.totalBids), "across all providers","earn"),
-  card("Saw demand, "+C.windowDays+"d", int(rows.filter(r=>(r.s10||0)>0).length),
-       "models that took a session","earn"),
-  card("Sessions, "+C.windowDays+"d", int(C.sessionsWindow),
-       fmt(C.sessionsWindow/C.windowDays,0)+" / day","earn"),
-  card("Median bid price", price(C.p50), "MOR / day","hold"),
-].join("");
+function drawKpis(){
+  const [sk,mk] = K[TF];
+  const sumX = k => rows.reduce((a,r)=>a+(r.selfDealt?0:(r[k]||0)),0);
+  const S = sumX("sessions"), V = sumX("value");
+  const withD = rows.filter(r=>r.sessions>0 && !r.selfDealt).length;
+  const days = TF==="d1"?1:TF==="d10"?(C.windowDays||10):null;
+  document.getElementById("kpis").innerHTML = [
+    kpi("Models with bids", int(rows.length), "of "+int(C.registeredModels)+" registered","time"),
+    kpi("Saw demand", int(withD),
+        rows.length? pct(100*withD/rows.length,1)+" took a session · "+tfLabel():"—","earn"),
+    kpi("Sessions", int(S), tfLabel()+" · excl. self-dealt","earn"),
+    kpi("Value paid", mor(V)+" MOR",
+        (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
+    kpi("Live bids", int(C.totalBids), "across all models","hold"),
+    kpi("Median bid price", price(C.p50), "MOR / day","hold"),
+  ].join("");
+}
 
-const rowHTML = r=>{
+function draw(){
+  shown = filtered();
+  const tb = document.getElementById("tb");
+  tb.innerHTML = shown.map(r=>
+    "<tr class='clickable"+(sel.has(r.id)?" selrow":"")+"' data-id='"+esc(r.id)+"'>"+
+    "<td class='chk'><input type='checkbox' data-id='"+esc(r.id)+"'"+(sel.has(r.id)?" checked":"")+
+      " aria-label='select "+esc(r.n)+"'></td>"+
+    "<td>"+esc(r.n)+(r.selfDealt?" <span class='pill cap'>self-dealt</span>":"")+
+      (r.t?" <span class='mono' style='color:var(--ink-3);font-size:11px'>"+esc(r.t)+"</span>":"")+"</td>"+
+    "<td class='num'>"+int(r.sessions)+"</td>"+
+    "<td class='num'>"+(r.value?mor(r.value):"—")+"</td>"+
+    "<td class='num'>"+(r.perSession!=null?fmt(r.perSession,4):"—")+"</td>"+
+    "<td class='num'>"+int(r.b)+"</td><td class='num'>"+int(r.p)+"</td>"+
+    "<td class='num'>"+price(r.mn)+"</td><td class='num'>"+price(r.md)+"</td>"+
+    "<td class='num'>"+price(r.mx)+"</td></tr>").join("")
+    || "<tr><td colspan='10'>no models match</td></tr>";
+  document.getElementById("cnt").textContent =
+    shown.length+" of "+rows.length+" models"+(sel.size? " · "+sel.size+" selected":"");
+  drawSelected();
+}
 
-  return `<tr data-id="${r.id}" style="cursor:pointer">
-    <td>${r.n}${r.t?`<br><span class="sub" style="font-size:11px">${r.t.replace(/\|/g," · ")}</span>`:""}</td>
-    <td class="num">${r.s10? int(r.s10) : (r.s10===0? "0":"—")}</td>
-    <td class="num">${r.b}</td><td class="num">${r.p}</td>
-    <td class="num">${price(r.mn)}</td><td class="num">${price(r.md)}</td><td class="num">${price(r.mx)}</td>
-    </tr>`;
-};
+function drawSelected(){
+  const card = document.getElementById("histcard");
+  if(!sel.size){ card.style.display="none"; return; }
+  const chosen = rows.filter(r=>sel.has(r.id));
+  const px = chosen.flatMap(r=>r.px||[]).filter(v=>v>0);
+  if(!px.length){ card.style.display="none"; return; }
+  card.style.display="";
+  document.getElementById("plot-sel").innerHTML = loghist(px, {bins:14}).svg;
+  const med = px.slice().sort((a,b)=>a-b)[Math.floor(px.length/2)];
+  document.getElementById("selcap").innerHTML =
+    int(px.length)+" bids across <strong>"+chosen.length+"</strong> selected model"+
+    (chosen.length===1?"":"s")+". Median <span class='mono'>"+price(med)+"</span> MOR/day, "+
+    "cheapest <span class='mono'>"+price(Math.min(...px))+"</span>, dearest "+
+    "<span class='mono'>"+price(Math.max(...px))+"</span>.";
+}
 
-const t=document.getElementById("t");
-let draw = sortable(t, rows, rowHTML, "s10", -1);
-const apply=()=>{
-  const q=(document.getElementById("q").value||"").toLowerCase().trim();
-  const f=document.querySelector('input[name=f]:checked').value;
-  let r=rows;
-  if(q) r=r.filter(m=>m.n.toLowerCase().includes(q)||(m.t||"").toLowerCase().includes(q));
-  if(f==="demand") r=r.filter(m=>(m.s10||0)>0);
-  if(f==="live")   r=r.filter(m=>m.live===1);
-  if(f==="open")   r=r.filter(m=>m.live===0);
-  draw = sortable(t, r, rowHTML, "s10", -1);
-  document.getElementById("cnt").textContent = `${r.length} of ${rows.length}`;
-};
-["q"].forEach(id=>document.getElementById(id).addEventListener("input",apply));
-document.querySelectorAll('input[name=f]').forEach(e=>e.addEventListener("change",apply));
-apply();
+/* ---- drill-down: who bids on this model ---- */
+const drill = document.getElementById("drill");
+function openDrill(id){
+  const m = rows.find(r=>r.id===id); if(!m) return;
+  document.getElementById("d-who").textContent = m.n;
+  document.getElementById("d-stats").innerHTML =
+    "<span><b>"+int(m.b)+"</b> bids</span><span><b>"+int(m.p)+"</b> providers</span>"+
+    "<span><b>"+int(m.sessions)+"</b> sessions · "+tfLabel()+"</span>"+
+    "<span><b>"+mor(m.value)+"</b> MOR paid</span>"+
+    "<span>median <b>"+price(m.md)+"</b> MOR/day</span>";
+  const pv = (m.pv||[]).slice().sort((a,b)=>a[1]-b[1]);
+  document.getElementById("d-bids").innerHTML = pv.length ? pv.map(([a,p])=>{
+    const d = PD[String(a).toLowerCase()] || {};
+    const ch = (d.head!=null) && d.head <= CHOKE;
+    return "<tr"+(ch?" class='choked'":"")+"><td class='mono'><a href='provider.html#"+esc(String(a).toLowerCase())+"'>"+
+      short(String(a))+"</a></td><td class='num'>"+price(p)+"</td>"+
+      "<td class='num'>"+(d.stake!=null?mor(d.stake):"—")+"</td>"+
+      "<td class='num'>"+(d.head!=null? (ch?"<span class='pill cap'>choked</span>":mor(d.head)) :"—")+"</td></tr>";
+  }).join("") : "<tr><td colspan='4'>bidder list not in this census build</td></tr>";
+  drill.classList.add("open");
+  drill.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+document.getElementById("d-close").addEventListener("click", ()=>drill.classList.remove("open"));
 
-/* click a row -> the bidders on that model, cheapest first */
-t.addEventListener("click",e=>{
-  const tr=e.target.closest("tr[data-id]"); if(!tr) return;
-  const m=rows.find(x=>x.id===tr.dataset.id); if(!m) return;
-  const d=document.getElementById("drill");
-  const bidders=(m.pv||[]).slice().sort((a,b)=>a[1]-b[1]);
-  if(!bidders.length){
-    d.innerHTML=`<div style="padding:14px 16px;border-top:1px solid var(--rule-2);background:var(--raised)">
-      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-        <b>${m.n}</b>
-        <span class="sub">${m.b} bids · ${m.p} providers · prices ${price(m.mn)}–${price(m.mx)}</span>
-        <button id="close">Close</button></div>
-      <div class="sub" style="margin-top:8px">Per-bidder breakdown is not in this census build —
-        it needs the <span class="mono">pv</span> field, which the next full census run will include.</div></div>`;
-    document.getElementById("close").onclick=()=>{ d.innerHTML=""; };
-    return;
-  }
-  d.innerHTML=`<div style="padding:14px 16px;border-top:1px solid var(--rule-2);background:var(--raised)">
-    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <b>${m.n}</b>
-      <span class="sub">${m.b} bids · ${m.p} providers · ${m.s10!=null? m.s10+" sessions in 10d":"session data unavailable"}</span>
-      <button id="close">Close</button></div>
-    <div class="scroll"><table style="min-width:380px"><thead><tr>
-      <th>Provider</th><th class="num">MOR / day</th><th class="num">vs cheapest</th></tr></thead><tbody>
-      ${bidders.map(([a,p],i)=>{
-        const me=false;
-        const mult=bidders[0][1]? p/bidders[0][1] : 1;
-        return `<tr class="${me?'me':''}"><td class="num">${short(String(a))}${me?" ← you":""}${i===0?" · cheapest":""}</td>
-          <td class="num">${price(p)}</td>
-          <td class="num">${i===0? "—" : fmt(mult,2)+"×"}</td></tr>`;}).join("")}
-    </tbody></table></div></div>`;
-  document.getElementById("close").onclick=()=>{ d.innerHTML=""; };
-  d.scrollIntoView({behavior:"smooth",block:"nearest"});
+/* ---- wiring ---- */
+document.getElementById("tb").addEventListener("click", e=>{
+  const cb = e.target.closest("input[type=checkbox]");
+  if(cb){ e.stopPropagation();
+    const id=cb.dataset.id; cb.checked? sel.add(id) : sel.delete(id);
+    cb.closest("tr").classList.toggle("selrow", cb.checked);
+    document.getElementById("cnt").textContent =
+      shown.length+" of "+rows.length+" models"+(sel.size? " · "+sel.size+" selected":"");
+    drawSelected(); return; }
+  const tr = e.target.closest("tr[data-id]");
+  if(tr) openDrill(tr.dataset.id);
 });
-}
+document.getElementById("selall").addEventListener("change", e=>{
+  shown.forEach(r=> e.target.checked ? sel.add(r.id) : sel.delete(r.id));
+  draw();
+});
+document.getElementById("sel-top").addEventListener("click", ()=>{
+  sel.clear();
+  rows.slice().sort((a,b)=>(b.b||0)-(a.b||0)).slice(0,10).forEach(r=>sel.add(r.id));
+  draw();
+});
+document.getElementById("sel-none").addEventListener("click", ()=>{ sel.clear();
+  document.getElementById("selall").checked=false; draw(); });
+document.getElementById("q").addEventListener("input", draw);
+document.querySelectorAll("input[name=f]").forEach(r=>r.addEventListener("change", draw));
+document.querySelectorAll("input[name=tf]").forEach(r=>r.addEventListener("change", e=>{
+  TF = e.target.value; build(); drawKpis(); S.resort(); }));
+
+build(); drawKpis();
+const S = sortable(document.getElementById("t"), rows, draw, "value", -1);
+wireTip(document.body);
+
+document.getElementById("foot").innerHTML =
+  "Census "+esc((C.asOf||"").slice(0,10))+" · Diamond <span class='mono'>"+short(DIAMOND)+"…</span>"+
+  " · <a href='https://github.com/Cbfriedl/morcompute-watchdog'>source</a>";
 </script>

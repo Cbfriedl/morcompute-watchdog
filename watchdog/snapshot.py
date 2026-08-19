@@ -21,8 +21,9 @@ import time
 from datetime import datetime, timezone
 
 DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a"
-ME = os.environ.get("PROVIDER_ADDRESS",
-                    "0x2f144F3b192A2d2D2384de7007EE2cAd943C601b").lower()
+ME = os.environ.get("PROVIDER_ADDRESS", "").lower()
+if not ME:
+    raise SystemExit("PROVIDER_ADDRESS is not set. Export it, or add it to the EnvironmentFile named by the systemd unit.")
 OUT = os.environ.get("SNAPSHOT_FILE", "snapshots.jsonl")
 RPCS = [u.strip() for u in os.environ.get(
     "SNAPSHOT_RPC",

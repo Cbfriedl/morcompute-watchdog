@@ -29,7 +29,9 @@ import time
 
 API = os.environ.get("ROUTER_API", "http://127.0.0.1:8082")
 COOKIE = os.environ.get("ROUTER_COOKIE_FILE", "/root/morpheus/morpheus-data/.cookie")
-ME = os.environ.get("PROVIDER_ADDRESS", "0x2f144f3b192a2d2d2384de7007ee2cad943c601b").lower()
+ME = os.environ.get("PROVIDER_ADDRESS", "").lower()
+if not ME:
+    raise SystemExit("PROVIDER_ADDRESS is not set. Export it, or add it to the EnvironmentFile named by the systemd unit.")
 
 # fraction of the distance from current price to the tie price to move per step
 STEP = float(os.environ.get("REPRICE_STEP", "0.40"))

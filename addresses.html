@@ -1,0 +1,170 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bids by address — Morpheus census</title>
+<meta name="description" content="Every address holding a live Morpheus bid, with its price spread, stake, headroom and realised earnings.">
+<link rel="stylesheet" href="assets/pub.css">
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Base mainnet · full chain census</div>
+    <h1>Bids by address</h1>
+    <p class="standfirst">
+      Every address holding a live bid, with its price spread and its realised
+      position. Addresses with no headroom left are shown in burgundy — their
+      bids are up, but they cannot be paid until they re-stake.
+    </p>
+  </header>
+
+  <div id="navslot"></div>
+  <div class="warnbox" id="err" style="display:none"></div>
+
+  <div class="tfbar">
+    <span class="lbl">Timeframe</span>
+    <label class="chkl"><input type="radio" name="tf" value="d1"> today</label>
+    <label class="chkl"><input type="radio" name="tf" value="d10" checked> trailing 10 days</label>
+    <label class="chkl"><input type="radio" name="tf" value="all"> all time</label>
+    <span class="selcount" id="tfnote"></span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="filter address…" aria-label="Filter addresses">
+    <label class="chkl"><input type="checkbox" id="hidechoked"> hide choked</label>
+    <label class="chkl"><input type="checkbox" id="hideself"> hide self-dealt</label>
+    <label class="chkl"><input type="checkbox" id="earnonly"> earned in window</label>
+    <span class="selcount" id="cnt"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table class="sortable" id="t">
+      <thead><tr>
+        <th data-k="a">Address<span class="ar">▲</span></th>
+        <th data-k="bids">Bids<span class="ar">▲</span></th>
+        <th data-k="models">Models<span class="ar">▲</span></th>
+        <th data-k="mn">Min<span class="ar">▲</span></th>
+        <th data-k="md">Median<span class="ar">▲</span></th>
+        <th data-k="mx">Max<span class="ar">▲</span></th>
+        <th data-k="stake">Stake<span class="ar">▲</span></th>
+        <th data-k="head">Headroom<span class="ar">▲</span></th>
+        <th data-k="sess">Sessions<span class="ar">▲</span></th>
+        <th data-k="val">MOR earned<span class="ar">▲</span></th>
+        <th data-k="buyers">Buyers<span class="ar">▲</span></th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+
+  <p class="cap">
+    <strong>Headroom</strong> is <span class="mono">stake − limitPeriodEarned</span>;
+    at zero the provider keeps serving and stops being paid.
+    <strong>Sessions</strong> and <strong>MOR earned</strong> come from the complete
+    session history, not from the live bid snapshot, so they reflect what actually
+    happened rather than what is on offer. <strong>Buyers</strong> is the number of
+    distinct addresses that have ever opened a session with that provider.
+  </p>
+
+  <footer id="foot"></footer>
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script type="module">
+import {DIAMOND,CHOKE,fmt,int,pct,mor,price,short,day,
+        nav,kpi,esc,census,wireTip,sortable} from "./assets/pub.js";
+
+document.getElementById("navslot").innerHTML = nav("addresses.html");
+let C, H;
+try { C = await census(); }
+catch(e){ const el=document.getElementById("err"); el.style.display="";
+  el.innerHTML="<b>Could not load census-full.json.</b> "+esc(e.message); throw e; }
+try { H = await (await fetch("providers-history.json?cb="+Date.now())).json(); } catch(e){ H=null; }
+
+const PD = C.pdetail || {}, HP = H?.providers || {};
+let TF="d10";
+const K = { d1:["s1","mor1","today"], d10:["s10","mor10","trailing "+(C.windowDays||10)+" days"],
+            all:["sAll","morAll","all time"] };
+const tfLabel = () => K[TF][2];
+
+let rows = [], shown = [];
+function build(){
+  const [sk,mk] = K[TF];
+  rows = Object.entries(PD).filter(([,p])=>!p.deleted).map(([a,p])=>{
+    const h = HP[a] || {};
+    return { a, bids:p.bids, models:p.models, mn:p.mn, md:p.md, mx:p.mx,
+             stake:p.stake, head:p.head, pct:p.pct,
+             sess: h[sk] ?? null, val: h[mk] ?? null,
+             buyers: h.buyers ?? null, self: (h.selfShare||0) >= 99.5,
+             top: h.topShare, first: h.first,
+             choked: (p.head||0) <= CHOKE };
+  });
+}
+
+function filtered(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const hc = document.getElementById("hidechoked").checked;
+  const hs = document.getElementById("hideself").checked;
+  const eo = document.getElementById("earnonly").checked;
+  return rows.filter(r=>
+    (!q || r.a.includes(q)) && !(hc && r.choked) && !(hs && r.self) && !(eo && !(r.val>0)));
+}
+
+function drawKpis(){
+  const contend = rows.filter(r=>!r.choked), choked = rows.filter(r=>r.choked);
+  const arm = rows.filter(r=>!r.self);
+  const val = arm.reduce((a,r)=>a+(r.val||0),0);
+  const sess = arm.reduce((a,r)=>a+(r.sess||0),0);
+  const earning = arm.filter(r=>(r.val||0)>0).length;
+  document.getElementById("kpis").innerHTML = [
+    kpi("Bidding addresses", int(rows.length), "hold at least one live bid","hold"),
+    kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
+    kpi("Choked", int(choked.length),
+        rows.length? pct(100*choked.length/rows.length,0)+" cannot be paid":"none","choke"),
+    kpi("Earned anything", int(earning),
+        "in "+tfLabel()+" · excl. self-dealt","earn"),
+    kpi("Sessions", int(sess), tfLabel()+" · excl. self-dealt","earn"),
+    kpi("Value paid", mor(val)+" MOR", tfLabel()+" · excl. self-dealt","earn"),
+    kpi("Total staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
+        "by addresses with live bids","hold"),
+    kpi("Staked and contending", mor(contend.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
+        "MOR that can still earn","hold"),
+  ].join("");
+  document.getElementById("tfnote").textContent =
+    int(sess)+" arm's-length sessions · "+mor(val)+" MOR";
+}
+
+function draw(){
+  shown = filtered();
+  document.getElementById("tb").innerHTML = shown.map(r=>
+    "<tr"+(r.choked?" class='choked'":"")+">"+
+    "<td class='mono"+(r.choked?" chokeaddr":"")+"'>"+
+      "<a href='provider.html#"+esc(r.a)+"'>"+short(r.a)+"</a>"+
+      (r.self?" <span class='pill cap'>self-dealt</span>":"")+"</td>"+
+    "<td class='num'>"+int(r.bids)+"</td><td class='num'>"+int(r.models)+"</td>"+
+    "<td class='num'>"+price(r.mn)+"</td><td class='num'>"+price(r.md)+"</td>"+
+    "<td class='num'>"+price(r.mx)+"</td>"+
+    "<td class='num'>"+mor(r.stake)+"</td>"+
+    "<td class='num'>"+(r.choked?"<span class='pill cap'>0</span>":mor(r.head))+"</td>"+
+    "<td class='num'>"+(r.sess!=null?int(r.sess):"—")+"</td>"+
+    "<td class='num'>"+(r.val!=null&&r.val>0?mor(r.val):"—")+"</td>"+
+    "<td class='num'"+(r.buyers!=null?" data-tip=\"top buyer holds "+pct(r.top,1)+" of its sessions\"":"")+">"+
+      (r.buyers!=null?int(r.buyers):"—")+"</td></tr>").join("")
+    || "<tr><td colspan='11'>no addresses match</td></tr>";
+  document.getElementById("cnt").textContent = shown.length+" of "+rows.length+" addresses";
+}
+
+build(); drawKpis();
+const S = sortable(document.getElementById("t"), rows, draw, "val", -1);
+["q"].forEach(id=>document.getElementById(id).addEventListener("input", draw));
+["hidechoked","hideself","earnonly"].forEach(id=>
+  document.getElementById(id).addEventListener("change", draw));
+document.querySelectorAll("input[name=tf]").forEach(r=>r.addEventListener("change", e=>{
+  TF = e.target.value; build(); drawKpis(); S.resort(); }));
+wireTip(document.body);
+
+document.getElementById("foot").innerHTML =
+  "Census "+esc((C.asOf||"").slice(0,10))+
+  (H? " · session history through "+esc(H.lastDay)+", coverage "+fmt(100*H.coverage,1)+"%":"")+
+  " · Diamond <span class='mono'>"+short(DIAMOND)+"…</span>"+
+  " · <a href='https://github.com/Cbfriedl/morcompute-watchdog'>source</a>";
+</script>

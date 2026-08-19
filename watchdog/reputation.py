@@ -23,8 +23,9 @@ from datetime import datetime, timezone
 
 API = os.environ.get("ROUTER_API", "http://127.0.0.1:8082")
 COOKIE = os.environ.get("ROUTER_COOKIE_FILE", "/root/morpheus/morpheus-data/.cookie")
-ME = os.environ.get("PROVIDER_ADDRESS",
-                    "0x2f144f3b192a2d2d2384de7007ee2cad943c601b").lower()
+ME = os.environ.get("PROVIDER_ADDRESS", "").lower()
+if not ME:
+    raise SystemExit("PROVIDER_ADDRESS is not set. Export it, or add it to the EnvironmentFile named by the systemd unit.")
 OUT = os.environ.get("REPUTATION_FILE", "reputation.json")
 DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a"
 RPCS = [u.strip() for u in os.environ.get(

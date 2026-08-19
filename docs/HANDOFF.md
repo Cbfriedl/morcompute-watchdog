@@ -14,7 +14,7 @@ No secrets appear in this repository. Where a credential is needed, its
 |---|---|---|
 | Provider node | `2.28.8.173:3333` | Serves compute. Docker container `morpheus-router`, image v7.5.0 |
 | Management API | `127.0.0.1:8082` on the box | REST API, Basic Auth. **Not** exposed publicly |
-| Provider address | `0x2f144F3b192A2d2D2384de7007EE2cAd943C601b` | On Base mainnet (chain 8453) |
+| Provider address | `$PROVIDER_ADDRESS` (kept out of this repo — see below) | On Base mainnet (chain 8453) |
 | On-box monitor | `/root/morpheus/monitor/` | systemd timer, every 10 min, read-only |
 | Watchdog | GitHub Actions, every 13 min | External TCP probe, writes `status.json` |
 | Dashboard | `cbfriedl.github.io/morcompute-watchdog` | Reads chain from the browser |
