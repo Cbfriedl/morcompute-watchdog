@@ -6,3 +6,9 @@ warmstart/
 # ~40 MB of chain reads, regenerable, and history.db is the committed product.
 histcache/
 __pycache__/
+
+# private feeds — never publish (OpenRouter spend, router-only scores)
+margin.json
+margin-state.json
+reputation.json
+private/

@@ -1,0 +1,152 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Morpheus Trends</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<div class="wrap">
+  <div class="masthead">
+    <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
+    <div><h1>Trends</h1><div class="sub" id="span">loading…</div></div>
+  </div>
+  <div id="navslot"></div>
+  <div class="warnbox" id="thin" style="display:none"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="chartbox"><h2>Cumulative MOR earned</h2>
+    <div class="note">From hourly snapshots. Slope is your earning rate.</div>
+    <svg id="c-earn" viewBox="0 0 1000 200" style="height:200px"></svg></div>
+
+  <div class="chartbox"><h2>Sessions</h2>
+    <div class="note">Cumulative sessions, and per-hour arrivals.</div>
+    <svg id="c-sess" viewBox="0 0 1000 200" style="height:200px"></svg></div>
+
+  <div class="tbl">
+    <h2><span>Per-model progress</span><span class="note" id="pmnote"></span></h2>
+    <div class="scroll"><table id="pm">
+      <thead><tr>
+        <th data-k="name">Model</th>
+        <th data-k="morPerDay" class="num">Bid</th>
+        <th data-k="sessions" class="num">Sessions now</th>
+        <th data-k="dSess" class="num">New this window</th>
+        <th data-k="mor" class="num">MOR earned</th>
+        <th data-k="perSession" class="num">MOR / session</th>
+        <th data-k="mature" class="num">Matured?</th>
+      </tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="tbl" id="histbox" style="display:none">
+    <h2><span>All-time history</span><span class="note" id="histnote"></span></h2>
+    <div style="padding:14px 16px" class="sub" id="histbody"></div>
+  </div>
+
+  <footer><a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a></footer>
+</div>
+
+<script type="module">
+import {fmt,int,mor,price,pct,nav,card,sortable} from "./assets/chain.js";
+document.getElementById("navslot").innerHTML = nav("trends.html");
+
+/* snapshots.jsonl — append-only, one object per line. A torn final line is
+   expected if a run was killed mid-write, so parse defensively and drop it. */
+let S=[];
+try{
+  const t = await (await fetch("snapshots.jsonl?cb="+Date.now())).text();
+  S = t.trim().split("\n").filter(Boolean)
+       .map(l=>{ try{ return JSON.parse(l); }catch(e){ return null; } }).filter(Boolean)
+       .sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+}catch(e){}
+
+const last = S[S.length-1], first = S[0];
+if(!S.length){
+  document.getElementById("span").textContent = "no snapshots yet";
+  document.getElementById("thin").style.display="";
+  document.getElementById("thin").innerHTML =
+    "<b>No snapshots recorded yet.</b> The hourly job writes <span class='mono'>snapshots.jsonl</span>; "+
+    "trends appear once it has run a few times.";
+} else {
+  const hrs = (new Date(last.ts)-new Date(first.ts))/3.6e6;
+  document.getElementById("span").textContent =
+    `${S.length} snapshot${S.length===1?"":"s"} · ` +
+    (hrs<48 ? fmt(hrs,1)+" hours" : fmt(hrs/24,1)+" days") + ` · latest ${last.ts.replace("T"," ").slice(0,16)} UTC`;
+
+  if(S.length<3){
+    document.getElementById("thin").style.display="";
+    document.getElementById("thin").innerHTML =
+      `<b>Only ${S.length} snapshot${S.length===1?"":"s"} so far.</b> Rates below are computed from too few `+
+      `points to be meaningful — treat them as provisional until the hourly job has run for a day.`;
+  }
+
+  const dE = last.earned - first.earned, dS = last.sessionsTotal - first.sessionsTotal;
+  const rateE = hrs>0 ? dE/hrs*24 : null, rateS = hrs>0 ? dS/hrs*24 : null;
+  document.getElementById("cards").innerHTML = [
+    card("Earned now", mor(last.earned), "MOR total","earn"),
+    card("Gained this window", mor(dE), hrs>0? "over "+fmt(hrs,1)+"h":"—","earn"),
+    card("Rate", rateE!=null? mor(rateE):"—", "MOR / day","earn"),
+    card("Sessions now", int(last.sessionsTotal), last.sessionsOpen+" open","earn"),
+    card("New this window", int(dS), rateS!=null? fmt(rateS,0)+" / day":"—","earn"),
+    card("Headroom", mor(last.headroom),
+         rateE>0 ? fmt(last.headroom/rateE,0)+" days at this rate" : "MOR still earnable",
+         last.headroom<=0.5?"choke":"hold"),
+    card("Active bids", last.activeBids, "listings","time"),
+    card("Earning models", last.models.filter(m=>m.sessions>0).length,
+         "of "+last.models.length,"earn"),
+  ].join("");
+
+  /* ---- line chart helper ---- */
+  const line=(el,acc,colour,fmtV)=>{
+    const W=1000,H=200,P={l:60,r:16,t:14,b:26};
+    const vals=S.map(acc), max=Math.max(...vals,0.0001);
+    const x=i=>P.l+(W-P.l-P.r)*(S.length<2?0:i/(S.length-1));
+    const y=v=>H-P.b-(H-P.t-P.b)*(v/max);
+    const d=S.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(acc(p)).toFixed(1)).join(" ");
+    const area=d+` L ${x(S.length-1).toFixed(1)} ${H-P.b} L ${x(0).toFixed(1)} ${H-P.b} Z`;
+    document.getElementById(el).innerHTML=`
+      <line x1="${P.l}" y1="${y(max)}" x2="${W-P.r}" y2="${y(max)}" stroke="var(--rule)"/>
+      <line x1="${P.l}" y1="${H-P.b}" x2="${W-P.r}" y2="${H-P.b}" stroke="var(--rule-2)"/>
+      <path d="${area}" fill="${colour}" opacity=".13"/>
+      <path d="${d}" fill="none" stroke="${colour}" stroke-width="2.5"/>
+      ${S.length===1? `<circle cx="${x(0)}" cy="${y(acc(S[0]))}" r="4" fill="${colour}"/>`:""}
+      <text x="${P.l-8}" y="${y(max)+4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${fmtV(max)}</text>
+      <text x="${P.l-8}" y="${H-P.b}" text-anchor="end" font-size="11" fill="var(--ink-3)">0</text>
+      <text x="${P.l}" y="${H-8}" font-size="11" fill="var(--ink-3)">${first.ts.slice(5,16).replace("T"," ")}</text>
+      <text x="${W-P.r}" y="${H-8}" text-anchor="end" font-size="11" fill="var(--ink-3)">now</text>`;
+  };
+  line("c-earn", p=>p.earned, "var(--accent)", v=>mor(v)+" MOR");
+  line("c-sess", p=>p.sessionsTotal, "var(--c-hold-ink)", v=>int(v));
+
+  /* ---- per-model progress, current vs first snapshot ---- */
+  const firstBy = Object.fromEntries((first.models||[]).map(m=>[m.model,m]));
+  const rows = (last.models||[]).map(m=>({
+    ...m,
+    dSess: m.sessions - (firstBy[m.model]?.sessions ?? 0),
+    perSession: m.sessions ? m.mor/m.sessions : 0,
+    // >=5 completed sessions is where successScore has flipped and quality has
+    // roughly doubled — the point at which repricing upward is worth its fee
+    mature: m.sessions>=5 ? 1 : 0,
+  }));
+  sortable(document.getElementById("pm"), rows, r=>`<tr class="${r.mature?'me':''}">
+      <td>${r.name||r.model.slice(0,14)}</td>
+      <td class="num">${price(r.morPerDay)}</td>
+      <td class="num">${r.sessions||"—"}</td>
+      <td class="num">${r.dSess>0? "+"+r.dSess : "—"}</td>
+      <td class="num">${r.mor? fmt(r.mor,4):"—"}</td>
+      <td class="num">${r.perSession? fmt(r.perSession,4):"—"}</td>
+      <td class="num">${r.mature? "yes — repriceable" : (r.sessions? r.sessions+"/5" : "not started")}</td>
+    </tr>`, "sessions", -1);
+  document.getElementById("pmnote").textContent =
+    `matured = 5+ closed sessions, where quality has roughly doubled`;
+}
+
+/* ---- all-time history, once the build lands ---- */
+try{
+  const r = await fetch("history-daily.json?cb="+Date.now());
+  if(r.ok){
+    const h = await r.json();
+    document.getElementById("histbox").style.display="";
+    document.getElementById("histnote").textContent = `${(h.days||[]).length} days`;
+    document.getElementById("histbody").textContent =
+      "All-time network history is available. Charting for this is the next step.";
+  }
+}catch(e){}
+</script>

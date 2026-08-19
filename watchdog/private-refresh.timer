@@ -1,0 +1,15 @@
+[Unit]
+Description=Refresh private provider feeds every 15 minutes
+Requires=private-refresh.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+# Jitter so this never lines up exactly with the 10-minute monitor timer;
+# both hit the same RPC endpoints and a collision wastes retries.
+RandomizedDelaySec=90
+Persistent=true
+Unit=private-refresh.service
+
+[Install]
+WantedBy=timers.target

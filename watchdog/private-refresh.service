@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh the private provider feeds (reputation + margin)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/morpheus/private
+# reputation.py reads the router's rating endpoint, which is localhost-only.
+# margin.py reads OpenRouter spend — the one figure not on chain.
+ExecStart=/usr/bin/python3 /root/morpheus/reputation.py
+ExecStart=/usr/bin/python3 /root/morpheus/margin.py
+TimeoutStartSec=600

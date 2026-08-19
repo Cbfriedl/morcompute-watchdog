@@ -1,0 +1,14 @@
+[Unit]
+Description=Private Morpheus provider dashboard (localhost only)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /root/morpheus/private_serve.py
+Restart=always
+RestartSec=10
+Environment=PRIVATE_ROOT=/root/morpheus/private
+Environment=PRIVATE_PORT=8090
+
+[Install]
+WantedBy=multi-user.target

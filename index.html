@@ -1,738 +1,233 @@
-<!doctype html>
-<html lang="en">
-<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Morpheus Provider Metrics</title>
-<meta name="color-scheme" content="light dark">
-<style>
-  :root{
-    color-scheme: light;
-    --surface:#fbfcfd; --raised:#fff; --ink:#0e1418; --ink-2:#4a5560; --ink-3:#7c8894;
-    --rule:#dde4ea; --rule-2:#eef2f6;
-    --good:#1baf7a; --warn:#eda100; --crit:#c0392f; --accent:#2a78d6;
-    /* card categories: blue = value you hold, green = value you earn, orange = time */
-    --c-hold-bg:#eff5fd; --c-hold-br:#cfe0f7; --c-hold-ink:#1d5fae;
-    --c-earn-bg:#ecf8f3; --c-earn-br:#c9e9dc; --c-earn-ink:#10805a;
-    --c-time-bg:#fdf1ec; --c-time-br:#f7dbcd; --c-time-ink:#b8501f;
-    /* zero-headroom providers: burgundy, distinct from the orange time cards */
-    --choke-bg:#f7e9ec; --choke-ink:#8c1f33; --choke-br:#e6c3cb;
-    --shadow:0 1px 2px rgba(14,20,24,.05),0 8px 24px -14px rgba(14,20,24,.2);
-  }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      color-scheme: dark;
-      --surface:#0f1418; --raised:#161d23; --ink:#eef3f7; --ink-2:#a5b2be; --ink-3:#6f7d8a;
-      --rule:#232d36; --rule-2:#1b242b;
-      --good:#199e70; --warn:#c98500; --crit:#e66767; --accent:#3987e5;
-    --c-hold-bg:#131f2c; --c-hold-br:#23384f; --c-hold-ink:#6aa9ee;
-    --c-earn-bg:#10231d; --c-earn-br:#1e4034; --c-earn-ink:#4fc79c;
-    --c-time-bg:#251811; --c-time-br:#46301f; --c-time-ink:#ef9163;
-      --c-hold-bg:#131f2c; --c-hold-br:#23384f; --c-hold-ink:#6aa9ee;
-      --c-earn-bg:#10231d; --c-earn-br:#1e4034; --c-earn-ink:#4fc79c;
-      --c-time-bg:#251811; --c-time-br:#46301f; --c-time-ink:#ef9163;
-      --choke-bg:#2a1119; --choke-ink:#e07d90; --choke-br:#4a2531;
-      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
-    }
-  }
-  :root[data-theme="dark"]{
-    color-scheme: dark;
-    --surface:#0f1418; --raised:#161d23; --ink:#eef3f7; --ink-2:#a5b2be; --ink-3:#6f7d8a;
-    --rule:#232d36; --rule-2:#1b242b;
-    --good:#199e70; --warn:#c98500; --crit:#e66767; --accent:#3987e5;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -14px rgba(0,0,0,.6);
-  }
-  *{box-sizing:border-box}
-  body{
-    margin:0;background:var(--surface);color:var(--ink);
-    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    line-height:1.5;-webkit-font-smoothing:antialiased;
-    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  }
-  .num{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
-  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:18px}
-  header{display:flex;flex-direction:column;gap:6px}
-  .masthead{flex-direction:row;align-items:center;gap:14px}
-  .brand{width:48px;height:48px;flex:none;object-fit:contain}
-  .brandline{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--accent);font-weight:680}
-  @media (max-width:420px){ .brand{width:38px;height:38px} }
-  h1{margin:0;font-size:20px;letter-spacing:-.02em;font-weight:680}
-  .sub{font-size:12.5px;color:var(--ink-3)}
-  .sub .num{font-size:12.5px}
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Morpheus Market</title>
+<link rel="stylesheet" href="assets/style.css">
 
-  .statusbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-    background:var(--raised);border:1px solid var(--rule);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
-  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:660;
-    padding:3px 10px;border-radius:20px;border:1px solid currentColor;letter-spacing:.02em}
-  .pill .d{width:7px;height:7px;border-radius:50%;background:currentColor}
-  .ok{color:var(--good)} .wa{color:var(--warn)} .cr{color:var(--crit)} .mu{color:var(--ink-3)}
-
-  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(158px,1fr))}
-  .card{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
-    padding:13px 15px;display:flex;flex-direction:column;gap:3px;box-shadow:var(--shadow)}
-  .card .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:640}
-  .card .v{font-size:23px;font-weight:680;letter-spacing:-.02em;line-height:1.2}
-  .card .s{font-size:12px;color:var(--ink-3)}
-  .card.hold{background:var(--c-hold-bg);border-color:var(--c-hold-br)}
-  .card.hold .v{color:var(--c-hold-ink)}
-  .card.earn{background:var(--c-earn-bg);border-color:var(--c-earn-br)}
-  .card.earn .v{color:var(--c-earn-ink)}
-  .card.time{background:var(--c-time-bg);border-color:var(--c-time-br)}
-  .card.time .v{color:var(--c-time-ink)}
-  /* zero headroom: still serving, still paying, earning nothing */
-  .card.choke{background:var(--choke-bg);border-color:var(--choke-br)}
-  .card.choke .v,.card.choke .s{color:var(--choke-ink)}
-
-  .meterbox{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
-    padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
-  .meterhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
-  .meterhead .t{font-size:13px;font-weight:660}
-  .meterhead .n{font-size:13px;color:var(--ink-2)}
-  .track{height:12px;border-radius:8px;background:var(--rule-2);overflow:hidden;position:relative}
-  .fill{height:100%;border-radius:8px;transition:width .5s ease,background .3s ease}
-  .mnote{font-size:12px;color:var(--ink-3)}
-
-  table{border-collapse:collapse;width:100%;font-size:13px}
-  th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--rule-2)}
-  th:first-child,td:first-child{text-align:left}
-  thead th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:650}
-  tbody tr:last-child td{border-bottom:none}
-  .tbl{background:var(--raised);border:1px solid var(--rule);border-radius:12px;
-    padding:6px 8px 4px;box-shadow:var(--shadow);overflow-x:auto}
-  .tbl h2{margin:8px 8px 4px;font-size:13px;font-weight:660}
-
-  footer{color:var(--ink-3);font-size:11.5px;text-align:center;line-height:1.7}
-  a{color:var(--accent)}
-  .err{background:var(--raised);border:1px solid var(--crit);border-left:3px solid var(--crit);
-    border-radius:10px;padding:12px 14px;color:var(--crit);font-size:13px;display:none}
-  button{font:inherit;font-size:12.5px;padding:5px 12px;border-radius:8px;cursor:pointer;
-    border:1px solid var(--rule);background:var(--rule-2);color:var(--ink)}
-  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px}
-  .toolbar input[type=search]{font:inherit;font-size:12.5px;padding:5px 9px;border-radius:8px;
-    border:1px solid var(--rule);background:var(--surface);color:var(--ink);min-width:150px}
-  .chkl{display:inline-flex;align-items:center;gap:5px;color:var(--ink-2);cursor:pointer}
-  .selcount{color:var(--ink-3)}
-  #mktable thead th,#pvtable thead th{cursor:pointer;user-select:none;white-space:nowrap}
-  .selrow{background:color-mix(in srgb, var(--accent) 10%, transparent)}
-  .pill-live{color:var(--good);font-weight:660}
-  .pill-dead{color:var(--crit);font-weight:660}
-  tr.choked td{background:var(--choke-bg);color:var(--choke-ink)}
-  tr.choked td:first-child{box-shadow:inset 3px 0 0 var(--choke-ink)}
-  tr.choked .chokemark{color:var(--choke-ink);font-weight:680}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style>
-</head>
-<body>
 <div class="wrap">
-  <header class="masthead">
-    <img src="assets/morfinance.png" alt="Morpheus Finance" class="brand">
-    <div>
-      <div class="brandline">Morpheus Finance</div>
-      <h1>Morpheus Provider Metrics</h1>
-      <div class="sub">
-        <span class="num" id="addr">0x2f14…601b</span> ·
-        endpoint <span class="num" id="endpoint">—</span>
-      </div>
-    </div>
-  </header>
+  <div class="masthead">
+    <img src="assets/morfinance.png" alt="" onerror="this.style.display='none'">
+    <div><h1>Market</h1><div class="sub" id="asof">loading census…</div></div>
+  </div>
+  <div id="navslot"></div>
+  <div class="warnbox" id="stale" style="display:none"></div>
 
-  <div class="err" id="err"></div>
+  <div class="grid" id="cards"></div>
 
-  <div class="statusbar">
-    <span class="pill mu" id="p-active"><span class="d"></span>loading</span>
-    <span class="pill mu" id="p-bids"><span class="d"></span>bids</span>
-    <span class="pill mu" id="p-gas"><span class="d"></span>gas</span>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
-      <span class="sub num" id="updated">—</span>
-      <button id="refresh">Refresh</button>
-    </span>
+  <div class="chartbox">
+    <h2>Where bid prices sit</h2>
+    <div class="note">Every live bid on the network, log-scaled. Your bids marked in green.</div>
+    <svg id="hist" viewBox="0 0 1000 230" style="height:230px"></svg>
   </div>
 
-  <div class="meterbox">
-    <div class="meterhead">
-      <span class="t">Headroom — how much you can still earn before you must re-stake</span>
-      <span class="n num" id="hr-pct">—</span>
-    </div>
-    <div class="track"><div class="fill" id="hr-fill" style="width:0%;background:var(--ink-3)"></div></div>
-    <div class="mnote" id="hr-note">
-      At zero you keep serving and keep paying costs while earning nothing — until
-      you claim and re-stake.
-    </div>
-  </div>
-
-  <!-- Same card set, same order, as the provider-lookup panel in the bid market
-       census, so a figure means the same thing on both pages. Everything here is
-       read live from chain for this one address; the census reads it daily for
-       everyone. -->
-  <div class="grid">
-    <div class="card time"><span class="k">Registration date</span><span class="v num" id="reg">—</span><span class="s" id="reg-sub">—</span></div>
-    <div class="card hold" id="c-head"><span class="k">Headroom</span><span class="v num" id="headroom">—</span><span class="s" id="headroom-sub">MOR still earnable</span></div>
-    <div class="card hold"><span class="k">Current stake</span><span class="v num" id="stake">—</span><span class="s">MOR staked now</span></div>
-    <div class="card hold"><span class="k">Base stake</span><span class="v num" id="basestake">—</span><span class="s">MOR contributed, not recycled</span></div>
-    <div class="card earn"><span class="k">Total earned</span><span class="v num" id="earned">—</span><span class="s" id="earned-pct">since registering</span></div>
-    <div class="card earn"><span class="k">Earned / day</span><span class="v num" id="rate">—</span><span class="s" id="rate-sub">since first bid</span></div>
-    <div class="card earn"><span class="k">ROI on base stake</span><span class="v num" id="roi">—</span><span class="s" id="roi-sub">earned ÷ contributed</span></div>
-    <div class="card earn"><span class="k">APR on base stake</span><span class="v num" id="apr">—</span><span class="s" id="apr-sub">annualised</span></div>
-    <div class="card earn"><span class="k">Active bids</span><span class="v num" id="nbids">—</span><span class="s" id="nbids-sub">listings on offer</span></div>
-    <div class="card earn"><span class="k">Earning bids</span><span class="v num" id="ebids">—</span><span class="s" id="ebids-sub">listings that took work</span></div>
-    <div class="card earn"><span class="k">Median bid price</span><span class="v num" id="medbid">—</span><span class="s">MOR / day</span></div>
-    <div class="card earn"><span class="k">Session capture</span><span class="v num" id="sessions">—</span><span class="s" id="sessions-sub">total, all time</span></div>
-    <div class="card earn"><span class="k">Capture rate</span><span class="v num" id="capture">—</span><span class="s" id="capture-sub">needs census</span></div>
-    <div class="card earn"><span class="k">Sessions / day</span><span class="v num" id="sessrate">—</span><span class="s" id="sessrate-sub">since first bid</span></div>
-  </div>
-
-  <!-- Node and wallet health. Not part of the census card set — it has no way to
-       see them — but this is the page that has to tell you the box is alive. -->
-  <div class="grid">
-    <div class="card time"><span class="k">Uptime</span><span class="v num" id="uptime">—</span><span class="s" id="uptime-sub">external probes</span></div>
-    <div class="card time"><span class="k">Counter resets</span><span class="v num" id="anniv">—</span><span class="s" id="anniv-date">—</span></div>
-    <div class="card hold"><span class="k">Wallet gas</span><span class="v num" id="eth">—</span><span class="s">ETH on Base</span></div>
-    <div class="card hold"><span class="k">Wallet MOR</span><span class="v num" id="mor">—</span><span class="s" id="mor-usd">unstaked</span></div>
-  </div>
-
-  <div class="grid" id="marketcards">
-    <div class="card time"><span class="k">Registered models</span><span class="v num" id="m-models">—</span><span class="s">on-chain, network wide</span></div>
-    <div class="card earn"><span class="k">Earners, 10d</span><span class="v num" id="m-earners">—</span><span class="s" id="m-earners-sub">addresses actually paid</span></div>
-    <div class="card hold"><span class="k">Zero headroom</span><span class="v num" id="m-zero">—</span><span class="s" id="m-zero-sub">providers earning nothing</span></div>
+  <div class="tbl" id="dormbox" style="display:none">
+    <h2><span>Dormant — choked, but with history</span>
+        <span class="note" id="dormnote"></span></h2>
+    <div style="padding:0 16px 10px" class="sub" id="dormlead"></div>
+    <div class="scroll"><table id="dorm">
+      <thead><tr>
+        <th data-k="a">Address</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="couldReturn" class="num">Headroom if it re-stakes</th>
+      </tr></thead><tbody></tbody></table></div>
   </div>
 
   <div class="tbl">
-    <h2>Active bids</h2>
-    <table>
-      <thead><tr><th>Model ID</th><th>Model</th><th>MOR / day</th><th>Sessions</th><th>~$ / day</th></tr></thead>
-      <tbody id="bids"><tr><td colspan="5" style="color:var(--ink-3)">loading…</td></tr></tbody>
-    </table>
-  </div>
-
-  <div class="tbl" id="marketwrap" style="display:none">
-    <h2 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <span>Bids by model</span>
-      <span style="font-weight:400;font-size:11.5px;color:var(--ink-3)" id="m-asof"></span>
-    </h2>
-    <div class="toolbar" style="padding:0 8px 8px">
-      <input type="search" id="mkfilter" placeholder="filter model or tag…" aria-label="Filter models">
-      <label class="chkl"><input type="radio" name="hd" value="all" checked> all</label>
-      <label class="chkl"><input type="radio" name="hd" value="live"> only live (a bidder has headroom)</label>
-      <label class="chkl"><input type="radio" name="hd" value="dead"> only stalled (no bidder has headroom)</label>
-      <span class="selcount" id="mkcount"></span>
+    <h2><span>Providers</span><span class="note" id="pvnote"></span></h2>
+    <div class="toolbar">
+      <input type="search" id="pvf" placeholder="filter address…">
+      <label class="chkl"><input type="checkbox" id="pvEarn"> only those earning</label>
+      <label class="chkl"><input type="checkbox" id="pvChoke"> include choked</label>
+      <span class="count" id="pvcount"></span>
     </div>
-    <table id="mktable">
+    <div class="scroll"><table id="pvtable">
       <thead><tr>
-        <th data-k="n">Model</th><th data-k="b">Bids</th><th data-k="p">Providers</th>
-        <th data-k="s7">Sessions 7d</th><th data-k="mn">Min</th>
-        <th data-k="md">Median</th><th data-k="mx">Max</th><th data-k="live">Live</th>
-      </tr></thead>
-      <tbody id="mkbody"></tbody>
-    </table>
-  </div>
-
-  <div class="tbl" id="provwrap" style="display:none">
-    <h2 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <span>Providers</span>
-      <span style="font-weight:400;font-size:11.5px;color:var(--ink-3)" id="pv-note"></span>
-    </h2>
-    <div class="toolbar" style="padding:0 8px 8px">
-      <input type="search" id="pvfilter" placeholder="filter address…" aria-label="Filter providers">
-      <label class="chkl"><input type="checkbox" id="pv-earning"> only those earning</label>
-      <span class="selcount" id="pvcount"></span>
-    </div>
-    <table id="pvtable">
-      <thead><tr>
-        <th data-k="a">Address</th><th data-k="stake">Staked</th>
-        <th data-k="earned">Earned</th><th data-k="head">Headroom</th>
-        <th data-k="pct">Earned / staked</th><th data-k="s10">Sessions 10d</th>
-      </tr></thead>
-      <tbody id="pvbody"></tbody>
-    </table>
-    <div id="pvdrill"></div>
+        <th data-k="a">Address</th>
+        <th data-k="stake" class="num">Staked</th>
+        <th data-k="earned" class="num">Earned</th>
+        <th data-k="head" class="num">Headroom</th>
+        <th data-k="pct" class="num">Earned / staked</th>
+        <th data-k="s10" class="num">Sessions 10d</th>
+        <th data-k="sAll" class="num">Sessions all-time</th>
+      </tr></thead><tbody></tbody>
+    </table></div>
   </div>
 
   <footer>
-    Reads Base mainnet directly from your browser — no server, no key, nothing stored.<br>
-    Diamond <span class="num">0x6aBE…3030a</span> ·
-    auto-refresh every 60s ·
-    <a href="https://github.com/Cbfriedl/morcompute-watchdog">watchdog repo</a><br>
-    <span id="pricenote"></span>
+    Market data from the daily census · your own position is on the private dashboard<br>
+    <a href="https://github.com/Cbfriedl/morcompute-watchdog">repo</a>
   </footer>
 </div>
 
-<script>
-const ADDR = "0x2f144F3b192A2d2D2384de7007EE2cAd943C601b";
-const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
-const MOR = "0x7431aDa8a591C955a994a21710752EF9b882b8e3";
-const RPCS = ["https://mainnet.base.org","https://1rpc.io/base","https://base.drpc.org"];
-const WARN_PCT = 30, ETH_MIN = 0.005;
-const SEL_PROVIDER_SESSIONS = "0x87bced7d";   // getProviderSessions(address,uint256,uint256)
-const SEL_GET_SESSION       = "0x39b240bd";   // getSession(bytes32)
-// Attributing sessions to individual bids means one call per session. Cap the
-// work so a busy provider does not hang the page; the total count is exact
-// either way, only the per-bid split is capped.
-const SESSION_ATTRIB_CAP = 150;
-// Headroom can never exceed the capital you put in from OUTSIDE. Re-staking
-// claimed earnings restores headroom but does not raise its ceiling: stake 1400
-// with 700 earned still leaves only 700 earnable. So the meter is measured
-// against contributed capital, NOT against current stake — otherwise a growing
-// stake would make a full tank look half empty.
-// UPDATE THIS whenever new (non-claimed) MOR is added to the stake.
-const EXTERNAL_STAKE = 700;
-let morUsd = null;
-// Capture rate needs both halves and they arrive from different places at
-// different times: my own session count from the chain read, the network total
-// from the daily census file. Whichever lands second draws the card.
-let MY_SESSIONS = null;
+<script type="module">
+import {ADDR,fmt,int,mor,price,pct,short,nav,card,sortable} from "./assets/chain.js";
+document.getElementById("navslot").innerHTML = nav("index.html");
+const ME = ADDR.toLowerCase();
 
-const pad = a => a.toLowerCase().replace("0x","").padStart(64,"0");
-const W = h => { h = h.startsWith("0x") ? h.slice(2) : h;
-  return Array.from({length: Math.ceil(h.length/64)}, (_,i)=>h.slice(i*64,(i+1)*64)); };
+const C = await (async()=>{ try{ return await (await fetch("census.json?cb="+Date.now())).json(); }
+                            catch(e){ return null; } })();
 
-async function rpc(method, params){
-  let last;
-  for (const url of RPCS){
-    try{
-      const r = await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});
-      const j = await r.json();
-      if (j.error) throw new Error(j.error.message||"rpc error");
-      return j.result;
-    }catch(e){ last = e; }
+if(!C){
+  document.getElementById("asof").textContent = "census not published yet";
+} else {
+  const asOf = (C.asOf||"").slice(0,16).replace("T"," ");
+  const ageH = C.asOf ? (Date.now()-new Date(C.asOf).getTime())/3.6e6 : null;
+  document.getElementById("asof").textContent =
+    `census ${asOf} UTC` + (ageH!=null ? ` · ${ageH<48? fmt(ageH,0)+"h" : fmt(ageH/24,1)+"d"} old` : "");
+
+  // A partial census is the failure mode that has actually happened: the run
+  // wrote models and bids but never reached the session scan or provider
+  // snapshot. Say so plainly rather than rendering blanks.
+  const missing = ["providers","registeredModels","activeProviders","zeroHeadroom","sessions10d"]
+    .filter(k => C[k]==null || (k==="providers" && !Array.isArray(C[k])));
+  if(missing.length){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML = `<b>This census is incomplete.</b> The run finished the model and bid scan but not
+      the session or provider stages, so these are unavailable: <span class="mono">${missing.join(", ")}</span>.
+      Cards and tables below that depend on them are hidden rather than shown as zero.`;
   }
-  throw last || new Error("all RPCs failed");
-}
-const call = (to,data) => rpc("eth_call",[{to,data},"latest"]);
+  if(ageH!=null && ageH>36){
+    const w=document.getElementById("stale"); w.style.display="";
+    w.innerHTML += `<br><b>It is also ${fmt(ageH/24,1)} days old</b> — the daily job may not be running.`;
+  }
 
-function decodeStr(w, base){
-  const n = parseInt(w[base],16); if(!n) return "";
-  const hex = w.slice(base+1, base+1+Math.ceil(n/32)).join("").slice(0,n*2);
-  let s=""; for(let i=0;i<hex.length;i+=2) s+=String.fromCharCode(parseInt(hex.substr(i,2),16));
-  return s;
-}
-const fmt = (n,d=2) => n.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+  const P = Array.isArray(C.providers) ? C.providers : [];
+  const live = P.filter(p=>!p.deleted);
+  // "contending" = has headroom, therefore can actually be paid and can
+  // actually outbid you. Choked providers are counted, never compared: they
+  // take no sessions until they claim and re-stake.
+  const CHOKE = 0.5;
+  const contend = live.filter(p=>(p.head||0) > CHOKE);
+  const choked  = live.filter(p=>(p.head||0) <= CHOKE);
+  const cards = [
+    card("Registered models", int(C.registeredModels ?? C.activeModels), "on chain, network wide","time"),
+    card("Models with bids", int(C.modelsWithBids), "at least one live listing","time"),
+    card("Total live bids", int(C.totalBids), "across all providers","time"),
+  ];
+  if(live.length){
+    const earners = contend.filter(p=>p.earned>0).length;
+    cards.push(
+      card("Contending providers", int(contend.length),
+           "have headroom — can be paid","hold"),
+      card("Choked", int(choked.length),
+           choked.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none",
+           "choke"),
+      card("Have ever earned", int(earners),
+           contend.length? pct(100*earners/contend.length,0)+" of contenders":"—","earn"),
+      card("Staked by contenders", mor(contend.reduce((a,p)=>a+(p.stake||0),0)),
+           "MOR that can still earn","hold"),
+      card("Earned by contenders", mor(contend.reduce((a,p)=>a+(p.earned||0),0)),
+           "MOR, all time","earn"));
+  }
+  if(C.sessions10d!=null)
+    cards.push(card("Sessions, 10d", int(C.sessions10d), fmt(C.sessions10d/10,0)+" / day","earn"));
+  if(C.sessionsAllTime!=null)
+    cards.push(card("Sessions, all time", int(C.sessionsAllTime), "network wide","earn"));
+  cards.push(
+    card("Median bid price", price(C.p50), "MOR / day","earn"),
+    card("Cheapest decile", price(C.p10), "10th percentile","earn"),
+    card("At the ceiling", int(C.atCeiling), "bids at 864 MOR/day","time"));
+  document.getElementById("cards").innerHTML = cards.join("");
 
-function setPill(el, cls, text){
-  el.className = "pill " + cls;
-  el.innerHTML = '<span class="d"></span>' + text;
-}
+  /* ---- price distribution, log bins ---- */
+  const px = (C.models||[]).flatMap(m=>m.px||[]).filter(v=>v>0);
+  const mine = new Set((C.models||[]).flatMap(m=>(m.pv||[])
+      .filter(v=>String(v[0]).toLowerCase()===ME || v[0]===ME).map(v=>v[1])));
+  if(px.length){
+    const lo=Math.log10(Math.min(...px)), hi=Math.log10(Math.max(...px)), NB=16;
+    const bins=Array.from({length:NB},(_,i)=>({c:0,mine:0,
+      lo:Math.pow(10,lo+(hi-lo)*i/NB), hi:Math.pow(10,lo+(hi-lo)*(i+1)/NB)}));
+    px.forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); bins[i].c++; });
+    [...mine].forEach(v=>{ let i=Math.min(NB-1,Math.floor((Math.log10(v)-lo)/(hi-lo)*NB)); if(bins[i]) bins[i].mine++; });
+    const W=1000,H=230,P_={l:44,r:14,t:14,b:44};
+    const raw=Math.max(...bins.map(b=>b.c),1), max=Math.ceil(raw/10)*10;
+    const bw=(W-P_.l-P_.r)/NB;
+    const y=v=>H-P_.b-(H-P_.t-P_.b)*(v/max);
+    document.getElementById("hist").innerHTML =
+      `<line x1="${P_.l}" y1="${y(max)}" x2="${W-P_.r}" y2="${y(max)}" stroke="var(--rule)"/>
+       <text x="${P_.l-6}" y="${y(max)+4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${max}</text>
+       <line x1="${P_.l}" y1="${H-P_.b}" x2="${W-P_.r}" y2="${H-P_.b}" stroke="var(--rule-2)"/>` +
+      bins.map((b,i)=>{
+        const x=P_.l+i*bw, h=(H-P_.b)-y(b.c);
+        const col = b.mine? "var(--accent)" : "var(--c-hold-ink)";
+        return (b.c? `<rect x="${x+1.5}" y="${y(b.c)}" width="${bw-3}" height="${Math.max(h,1)}"
+                  fill="${col}" rx="3"/>
+                <text x="${x+bw/2}" y="${y(b.c)-4}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.c}</text>`:"") +
+          (i%3===0? `<text x="${x+bw/2}" y="${H-P_.b+15}" text-anchor="middle" font-size="10"
+                  fill="var(--ink-3)">${b.lo<1? b.lo.toFixed(2):Math.round(b.lo)}</text>`:"");
+      }).join("") +
+      `<text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--ink-3)">
+        bid price, MOR/day (log scale) — <tspan fill="var(--accent)">green = a bin containing one of your bids</tspan></text>`;
+  }
 
-async function load(){
-  const err = document.getElementById("err");
-  try{
-    const [pRaw, actRaw, ethRaw, morRaw, bidRaw, sessRaw] = await Promise.all([
-      call(DIAMOND, "0x55f21eb7"+pad(ADDR)),
-      call(DIAMOND, "0x63ef175d"+pad(ADDR)),
-      rpc("eth_getBalance",[ADDR,"latest"]),
-      call(MOR, "0x70a08231"+pad(ADDR)),
-      call(DIAMOND, "0xaf5b77ca"+pad(ADDR)+(0).toString(16).padStart(64,"0")+(50).toString(16).padStart(64,"0")),
-      call(DIAMOND, SEL_PROVIDER_SESSIONS+pad(ADDR)+(0).toString(16).padStart(64,"0")+(100000).toString(16).padStart(64,"0"))
-        .catch(()=>null)
-    ]);
-    err.style.display="none";
+  /* ---- dormant: choked, but with real history ----
+     Ranked by what they could re-stake, not by past volume. Re-staking restores
+     headroom one-for-one with the amount staked, so a provider that earned
+     9,882 MOR can return with 9,882 MOR of headroom, while one that earned
+     1 MOR cannot come back at any scale without fresh outside capital.
+     Past session count says who they WERE; claimable earnings says who they
+     could be tomorrow. */
+  const dorm = choked.filter(p=>(p.sAll||0)>0)
+    .map(p=>({...p, couldReturn: p.earned||0}))
+    .sort((a,b)=>b.couldReturn-a.couldReturn);
+  if(dorm.length){
+    document.getElementById("dormbox").style.display="";
+    const totS = dorm.reduce((a,p)=>a+(p.sAll||0),0);
+    const totR = dorm.reduce((a,p)=>a+p.couldReturn,0);
+    const big  = dorm.filter(p=>p.couldReturn>=100);
+    document.getElementById("dormnote").textContent =
+      `${dorm.length} of ${choked.length} choked have run sessions before`;
+    document.getElementById("dormlead").innerHTML =
+      `These cannot take sessions today — zero headroom means they cannot be paid. But choking is
+       reversible: claiming and re-staking restores headroom one-for-one. Between them they have run
+       <b>${int(totS)}</b> sessions and could return with <b>${mor(totR)} MOR</b> of headroom without
+       adding a penny of new capital.` +
+      (big.length ? ` <b>${big.length}</b> could return at meaningful scale (≥100 MOR); the rest would
+       need fresh outside capital to matter.` : ` None could return at meaningful scale without new capital.`);
+    sortable(document.getElementById("dorm"), dorm, p=>{
+      const heavy = p.couldReturn>=100;
+      return `<tr${heavy?' class="choked"':''}>
+        <td class="num">${short(p.a)}${heavy?" · could return big":""}</td>
+        <td class="num">${int(p.sAll)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.couldReturn)}</td></tr>`;
+    }, "couldReturn", -1);
+  }
 
-    const w = W(pRaw), b = parseInt(w[0],16)/32;
-    const endpoint = decodeStr(w, b + parseInt(w[b],16)/32);
-    const stake   = Number(BigInt("0x"+w[b+1]))/1e18;
-    const createdAt = parseInt(w[b+2],16);   // registration timestamp
-    const periodEnd = parseInt(w[b+3],16);
-    const earned  = Number(BigInt("0x"+w[b+4]))/1e18;
-    const deleted = parseInt(w[b+5],16) === 1;
-    const active  = parseInt(actRaw,16) === 1;
-    const eth     = Number(BigInt(ethRaw))/1e18;
-    const morBal  = Number(BigInt("0x"+W(morRaw)[0]))/1e18;
-
-    const headroom = stake - earned;
-    // denominator is contributed capital, not current stake — see EXTERNAL_STAKE
-    const capacity = Math.max(EXTERNAL_STAKE, 0.000001);
-    const pct = 100*headroom/capacity;
-
-    document.getElementById("endpoint").textContent = endpoint || "—";
-    document.getElementById("stake").textContent   = fmt(stake,1);
-    document.getElementById("earned").textContent  = fmt(earned,1);
-    document.getElementById("earned-pct").textContent = "since registering";
-    document.getElementById("headroom").textContent = fmt(headroom,1);
-    document.getElementById("basestake").textContent = fmt(EXTERNAL_STAKE,1);
-
-    // Zero headroom is the state worth shouting about: the node keeps serving and
-    // keeps costing money while earning nothing until it claims and re-stakes.
-    const chokeCard = document.getElementById("c-head");
-    const choked = headroom <= 0.5;
-    chokeCard.className = "card " + (choked ? "choke" : "hold");
-    document.getElementById("headroom-sub").textContent =
-      choked ? "CHOKED — claim and re-stake" : "MOR still earnable";
-
-    // Registration date, and the age that every annualised figure divides by.
-    const ageDays = createdAt ? (Date.now()/1000 - createdAt)/86400 : null;
-    document.getElementById("reg").textContent = createdAt
-      ? new Date(createdAt*1000).toLocaleDateString(undefined,
-          {month:"2-digit",day:"2-digit",year:"2-digit"}) : "—";
-    document.getElementById("reg-sub").textContent =
-      ageDays === null ? "date unknown" : Math.round(ageDays)+" days ago";
-
-    // Return is measured against capital contributed from OUTSIDE, not against
-    // current stake — re-staking earnings inflates stake and would flatter this.
-    const roi = EXTERNAL_STAKE ? 100*earned/EXTERNAL_STAKE : null;
-    document.getElementById("roi").textContent =
-      roi === null ? "—" : Math.round(roi).toLocaleString()+"%";
-    const apr = (roi !== null && ageDays) ? roi*365/ageDays : null;
-    document.getElementById("apr").textContent =
-      apr === null ? "—" : Math.round(apr).toLocaleString()+"%";
-    document.getElementById("apr-sub").textContent =
-      ageDays ? "annualised over "+Math.round(ageDays)+"d" : "annualised";
-
-    document.getElementById("eth").textContent = fmt(eth,5);
-    document.getElementById("mor").textContent = fmt(morBal);
-    document.getElementById("mor-usd").textContent =
-      morUsd ? "≈ $"+fmt(morBal*morUsd) : "unstaked";
-
-    const days = Math.max(0,(periodEnd*1000 - Date.now())/86400000);
-    document.getElementById("anniv").textContent = Math.floor(days)+"d";
-    document.getElementById("anniv-date").textContent =
-      new Date(periodEnd*1000).toISOString().slice(0,10);
-
-    const fill = document.getElementById("hr-fill");
-    fill.style.width = Math.max(0,Math.min(100,pct))+"%";
-    fill.style.background = pct < WARN_PCT ? "var(--crit)" : (pct < 60 ? "var(--warn)" : "var(--good)");
-    document.getElementById("hr-pct").textContent =
-      fmt(headroom)+" / "+fmt(capacity)+" MOR  ("+fmt(pct,1)+"%)";
-    document.getElementById("hr-note").textContent = pct < WARN_PCT
-      ? "Below "+WARN_PCT+"% — claim and re-stake soon. At zero you keep serving and keep paying costs while earning nothing."
-      : "Measured against "+fmt(EXTERNAL_STAKE,0)+" MOR of capital you contributed. "
-        + "Re-staking earnings restores this meter; only new outside MOR raises its ceiling.";
-
-    setPill(document.getElementById("p-active"),
-      (active && !deleted) ? "ok" : "cr",
-      (active && !deleted) ? "provider active" : "NOT ACTIVE");
-    setPill(document.getElementById("p-gas"),
-      eth >= ETH_MIN ? "ok" : "cr",
-      eth >= ETH_MIN ? "gas ok" : "gas low");
-
-    // sessions
-    let sessionIds = [];
-    if (sessRaw) {
-      const sw = W(sessRaw), so = parseInt(sw[0],16)/32, sn = parseInt(sw[so],16);
-      sessionIds = Array.from({length:sn},(_,i)=>"0x"+sw[so+1+i]);
-    }
-    document.getElementById("sessions").textContent = sessRaw ? sessionIds.length.toLocaleString() : "—";
-    document.getElementById("sessions-sub").textContent =
-      sessRaw ? "total, all time" : "could not read";
-    MY_SESSIONS = sessRaw ? sessionIds.length : null;
-    renderCapture();
-
-    // bids
-    const bw = W(bidRaw), off = parseInt(bw[0],16)/32, n = parseInt(bw[off],16);
-    const ids = Array.from({length:n},(_,i)=>"0x"+bw[off+1+i]);
-    setPill(document.getElementById("p-bids"), n ? "ok" : "wa",
-      n ? n+" active bid"+(n>1?"s":"") : "no bids — not earning");
-    document.getElementById("nbids").textContent = n;
-    document.getElementById("nbids-sub").textContent =
-      n ? "listings on offer" : "nothing can be sold";
-
-    const tb = document.getElementById("bids");
-    if(!n){
-      tb.innerHTML = '<tr><td colspan="5" style="color:var(--ink-3)">No active bids — nothing can be sold.</td></tr>';
-      document.getElementById("ebids").textContent = "0";
-      document.getElementById("ebids-sub").textContent = "no listings on offer";
-      document.getElementById("medbid").textContent = "—";
-    } else {
-      let firstBidAt = Infinity;
-      const prices = [];      // for the median bid price card
-      let earningBids = 0;    // listings that actually took work
-      // map bidId -> session count (capped; see SESSION_ATTRIB_CAP)
-      const perBid = {};
-      const toScan = sessionIds.slice(-SESSION_ATTRIB_CAP);
-      const capped = sessionIds.length > toScan.length;
-      await Promise.all(toScan.map(async sid=>{
-        try{
-          const sw = W(await call(DIAMOND, SEL_GET_SESSION+sid.slice(2)));
-          const bid = "0x"+sw[2];
-          perBid[bid] = (perBid[bid]||0)+1;
-        }catch(e){ /* skip unreadable session */ }
-      }));
-      const rows = await Promise.all(ids.map(async id=>{
-        const r = W(await call(DIAMOND,"0x91704e1e"+id.slice(2)));
-        const modelId = "0x"+r[1];
-        const pps = Number(BigInt("0x"+r[2]));
-        const perDay = pps*86400/1e18;
-        const createdAt = parseInt(r[4],16);
-        if (createdAt) firstBidAt = Math.min(firstBidAt, createdAt);
-        // getModel(bytes32) -> resolve the human-readable name for this listing
-        let name = "—";
-        try{
-          const m = W(await call(DIAMOND,"0x21e7c498"+r[1]));
-          const base = parseInt(m[0],16)/32;
-          name = decodeStr(m, base + parseInt(m[base+4],16)/32) || "(unnamed)";
-        }catch(e){ name = "(lookup failed)"; }
-        const sc = perBid[id] || 0;
-        prices.push(perDay);
-        if (sc > 0) earningBids++;
-        return `<tr><td class="num">${modelId.slice(0,14)}…</td>
-                <td>${name}</td>
-                <td class="num">${fmt(perDay,3)}</td>
-                <td class="num">${sc}${capped?"+":""}</td>
-                <td class="num">${morUsd?"$"+fmt(perDay*morUsd):"—"}</td></tr>`;
-      }));
-      tb.innerHTML = rows.join("");
-
-      prices.sort((a,b)=>a-b);
-      const med = prices.length
-        ? (prices.length % 2 ? prices[(prices.length-1)/2]
-                             : (prices[prices.length/2-1]+prices[prices.length/2])/2)
-        : null;
-      // bid prices keep 2 decimals; every MOR amount elsewhere keeps 1
-      document.getElementById("medbid").textContent = med === null ? "—" : fmt(med,2);
-      document.getElementById("ebids").textContent = earningBids;
-      document.getElementById("ebids-sub").textContent =
-        Math.round(100*earningBids/n) + "% of listings took work"
-        + (capped ? " (last "+SESSION_ATTRIB_CAP+" sessions)" : "");
-
-      // Earnings rate since the first bid went live. Before any bid existed the
-      // node could not sell, so dividing lifetime earnings by provider age would
-      // understate the real rate. The clock starts at the earliest active bid.
-      if (isFinite(firstBidAt)) {
-        const days = (Date.now()/1000 - firstBidAt) / 86400;
-        if (days > 0) {
-          const perDay = earned / days;
-          document.getElementById("rate").textContent =
-            days < 0.25 ? "—" : fmt(perDay, perDay < 10 ? 2 : 1);
-          document.getElementById("rate-sub").textContent =
-            days < 0.25
-              ? "too early — " + fmt(days*24,1) + "h of data"
-              : "over " + fmt(days,1) + "d since first bid";
-
-          const sPerDay = sessionIds.length / days;
-          document.getElementById("sessrate").textContent =
-            days < 0.25 ? "—" : fmt(sPerDay, sPerDay < 10 ? 2 : 1);
-          document.getElementById("sessrate-sub").textContent =
-            days < 0.25 ? "too early" : "over " + fmt(days,1) + "d since first bid";
-        }
-      }
-    }
-
-    document.getElementById("updated").textContent =
-      "updated " + new Date().toLocaleTimeString();
-  }catch(e){
-    err.style.display="block";
-    err.textContent = "Could not read the chain: " + (e.message||e) +
-      " — showing the last successful values. This page failing is NOT the same as your node failing.";
+  /* ---- providers table ---- */
+  const tb=document.getElementById("pvtable");
+  if(!live.length){
+    tb.closest(".tbl").style.display="none";
+  } else {
+    const row = p=>{
+      const me = p.a.toLowerCase()===ME;
+      const ch = (p.head||0) <= CHOKE;
+      return `<tr class="${me?'me ':''}${ch?'choked':''}">
+        <td class="num">${short(p.a)}${me?' ← you':''}${ch?' · must re-stake':''}</td>
+        <td class="num">${mor(p.stake)}</td><td class="num">${mor(p.earned)}</td>
+        <td class="num">${mor(p.head)}</td><td class="num">${pct(p.pct)}</td>
+        <td class="num">${p.s10? int(p.s10):"—"}</td>
+        <td class="num">${p.sAll!=null? int(p.sAll):"—"}</td></tr>`;
+    };
+    let draw = sortable(tb, live, row, "earned", -1);
+    const apply=()=>{
+      const q=(document.getElementById("pvf").value||"").toLowerCase().trim();
+      const showChoked = document.getElementById("pvChoke").checked;
+      let rows = showChoked ? live : contend;
+      if(q) rows=rows.filter(p=>p.a.toLowerCase().includes(q));
+      if(document.getElementById("pvEarn").checked) rows=rows.filter(p=>p.earned>0);
+      draw = sortable(tb, rows, row, "earned", -1);
+      document.getElementById("pvcount").textContent =
+        `${rows.length} of ${showChoked? live.length : contend.length}` +
+        (showChoked? " (incl. choked)" : ` contending · ${choked.length} choked hidden`);
+    };
+    ["pvf","pvEarn","pvChoke"].forEach(id=>
+      document.getElementById(id).addEventListener("input",apply));
+    apply();
+    document.getElementById("pvnote").textContent = C.sessionsNote || "";
   }
 }
-
-function renderCapture(){
-  const v = document.getElementById("capture"), s = document.getElementById("capture-sub");
-  if (!v) return;
-  // Denominator must match the numerator's window. My session count is all-time,
-  // so the network total has to be all-time too — never the 10-day figure.
-  const net = CENSUS && (CENSUS.sessionsAllTime ||
-    ((CENSUS.providers||[]).reduce((a,p)=>a+(p.sAll||0),0) || null));
-  if (MY_SESSIONS === null || !net){
-    v.textContent = "—";
-    s.textContent = MY_SESSIONS === null ? "could not read sessions"
-                                         : "awaiting next census";
-    return;
-  }
-  v.textContent = (100*MY_SESSIONS/net).toFixed(1)+"%";
-  s.textContent = "of "+net.toLocaleString()+" network-wide, all time";
-}
-
-async function loadUptime(){
-  // Written by the GitHub Actions watchdog every 13 min. A browser cannot open a
-  // TCP socket to the node, so this is the only honest source of availability.
-  try{
-    const r = await fetch("status.json?cb="+Date.now());
-    if(!r.ok) throw new Error("no status file yet");
-    const d = await r.json();
-    const u = (d.uptime_24h != null) ? d.uptime_24h : d.uptime_7d;
-    document.getElementById("uptime").textContent = (u==null) ? "—" : fmt(u,2)+"%";
-    // colour comes from the .time category; health is conveyed by the sub-label
-    const span = d.first_check ? (Date.now()/1000 - d.first_check)/86400 : 0;
-    document.getElementById("uptime-sub").textContent =
-      d.checks_total + " probes · " + (span < 1 ? fmt(span*24,1)+"h" : fmt(span,1)+"d")
-      + (d.last_ok ? " · up now" : " · DOWN NOW");
-  }catch(e){
-    document.getElementById("uptime").textContent = "—";
-    document.getElementById("uptime-sub").textContent = "awaiting first probe";
-  }
-}
-
-/* ---------- daily census (written by GitHub Actions) ---------- */
-let CENSUS = null, mkSort = "b", mkDir = -1;
-
-async function loadCensus(){
-  try{
-    const r = await fetch("census.json?cb="+Date.now());
-    if(!r.ok) throw new Error("no census yet");
-    CENSUS = await r.json();
-  }catch(e){
-    document.getElementById("m-asof") &&
-      (document.getElementById("m-asof").textContent = "census not published yet");
-    return;
-  }
-  const C = CENSUS;
-  document.getElementById("m-models").textContent = C.registeredModels ?? "—";
-  document.getElementById("m-earners").textContent =
-    (C.earners10d === null || C.earners10d === undefined) ? "—" : C.earners10d;
-  document.getElementById("m-earners-sub").textContent =
-    (C.earners10d === null || C.earners10d === undefined)
-      ? "needs " + (C.earnerWindowDays||10) + "d of history (have " + (C.earnerSpanDays||0) + "d)"
-      : "of " + C.activeProviders + " active, over " + (C.earnerSpanDays||C.earnerWindowDays) + "d";
-  document.getElementById("m-zero").textContent = C.zeroHeadroom ?? "—";
-  document.getElementById("m-zero-sub").textContent =
-    C.activeProviders ? "of " + C.activeProviders + " active providers" : "providers earning nothing";
-  document.getElementById("m-asof").textContent =
-    "census " + (C.asOf||"").slice(0,16).replace("T"," ") + " UTC · "
-    + C.totalBids + " bids · " + C.providers?.length + " providers";
-  document.getElementById("marketwrap").style.display = "";
-  renderCapture();
-  renderMarket();
-  if (C.providers && C.providers.length){
-    document.getElementById("provwrap").style.display = "";
-    document.getElementById("pv-note").textContent =
-      (C.sessions10d ?? 0) + " sessions network-wide in 10d · " + (C.sessionsNote||"");
-    renderProviders();
-  }
-}
-
-function renderMarket(){
-  if(!CENSUS) return;
-  const q = (document.getElementById("mkfilter").value||"").toLowerCase().trim();
-  const mode = document.querySelector('input[name=hd]:checked').value;
-  let rows = CENSUS.models || [];
-  if(q) rows = rows.filter(m => m.n.toLowerCase().includes(q) || (m.t||"").toLowerCase().includes(q));
-  if(mode==="live") rows = rows.filter(m => m.live === 1);
-  if(mode==="dead") rows = rows.filter(m => m.live === 0);
-  rows = rows.slice().sort((a,b)=>{
-    let x=a[mkSort], y=b[mkSort];
-    if(typeof x === "string") return mkDir * x.localeCompare(y);
-    if(x===undefined) x=-1; if(y===undefined) y=-1;
-    return mkDir * (x-y);
-  });
-  document.getElementById("mkcount").textContent =
-    rows.length + " of " + (CENSUS.models||[]).length + " models";
-  document.getElementById("mkbody").innerHTML = rows.slice(0,400).map(m=>`
-    <tr>
-      <td>${m.n}</td>
-      <td class="num">${m.b}</td>
-      <td class="num">${m.p}</td>
-      <td class="num">${m.s7 ?? "—"}</td>
-      <td class="num">${m.mn.toFixed(3)}</td>
-      <td class="num">${m.md.toFixed(3)}</td>
-      <td class="num">${m.mx.toFixed(3)}</td>
-      <td class="${m.live?'pill-live':'pill-dead'}">${m.live?'live':'stalled'}</td>
-    </tr>`).join("")
-    + (rows.length>400 ? `<tr><td colspan="8" style="color:var(--ink-3)">…${rows.length-400} more, narrow the filter</td></tr>` : "");
-}
-
-document.addEventListener("DOMContentLoaded", ()=>{
-  const f=document.getElementById("mkfilter"); if(f) f.addEventListener("input", renderMarket);
-  document.querySelectorAll('input[name=hd]').forEach(r=>r.addEventListener("change", renderMarket));
-  const pf=document.getElementById("pvfilter"); if(pf) pf.addEventListener("input", renderProviders);
-  const pe=document.getElementById("pv-earning"); if(pe) pe.addEventListener("change", renderProviders);
-  const pb=document.getElementById("pvbody");
-  if(pb) pb.addEventListener("click", e=>{
-    const tr=e.target.closest("tr[data-a]"); if(!tr) return;
-    pvOpen = (pvOpen===tr.dataset.a) ? null : tr.dataset.a;
-    renderProviders();
-  });
-  document.querySelectorAll('#pvtable thead th[data-k]').forEach(th=>{
-    th.addEventListener("click", ()=>{
-      const k=th.dataset.k;
-      if(k===pvSort) pvDir=-pvDir; else { pvSort=k; pvDir=(k==="a")?1:-1; }
-      renderProviders();
-    });
-  });
-  document.querySelectorAll('#mktable thead th[data-k]').forEach(th=>{
-    th.addEventListener("click", ()=>{
-      const k=th.dataset.k;
-      if(k===mkSort) mkDir=-mkDir; else { mkSort=k; mkDir=(k==="n")?1:-1; }
-      renderMarket();
-    });
-  });
-});
-
-/* ---------- providers ---------- */
-let pvSort = "s10", pvDir = -1, pvOpen = null;
-
-function renderProviders(){
-  if(!CENSUS || !CENSUS.providers) return;
-  const q = (document.getElementById("pvfilter").value||"").toLowerCase().trim();
-  const onlyEarn = document.getElementById("pv-earning").checked;
-  let rows = CENSUS.providers.filter(p=>!p.deleted);
-  if(q) rows = rows.filter(p=>p.a.toLowerCase().includes(q));
-  if(onlyEarn) rows = rows.filter(p=>(p.s10||0) > 0);
-  rows = rows.slice().sort((a,b)=>{
-    let x=a[pvSort], y=b[pvSort];
-    if(typeof x === "string") return pvDir * x.localeCompare(y);
-    return pvDir * ((x||0)-(y||0));
-  });
-  document.getElementById("pvcount").textContent =
-    rows.length + " of " + CENSUS.providers.filter(p=>!p.deleted).length + " providers";
-  document.getElementById("pvbody").innerHTML = rows.map(p=>`
-    <tr data-a="${p.a}" style="cursor:pointer" class="${p.head<=0.0001?'choked ':''}${pvOpen===p.a?'selrow':''}">
-      <td class="num">${p.a.slice(0,12)}…${p.head<=0.0001?' <span class="chokemark">must re-stake</span>':''}</td>
-      <td class="num">${(p.stake||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-      <td class="num">${(p.earned||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-      <td class="num">${(p.head||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-      <td class="num">${(p.pct||0).toFixed(1)}%</td>
-      <td class="num">${p.s10 ?? "—"}</td>
-    </tr>`).join("");
-  drawDrill();
-}
-
-function drawDrill(){
-  const el = document.getElementById("pvdrill");
-  if(!pvOpen){ el.innerHTML=""; return; }
-  const p = (CENSUS.providers||[]).find(x=>x.a===pvOpen);
-  if(!p){ el.innerHTML=""; return; }
-  const names = {}; (CENSUS.models||[]).forEach(m=>{ names[m.id]=m.n; });
-  const rows = Object.entries(p.by||{}).sort((a,b)=>b[1]-a[1]);
-  el.innerHTML = `
-    <div style="margin:10px 8px 14px;padding:14px;border:1px solid var(--rule);
-                border-radius:10px;background:var(--rule-2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-        <span class="num" style="font-weight:660">${p.a}</span>
-        <button id="pv-close">Collapse ✕</button>
-      </div>
-      <div style="font-size:12.5px;color:var(--ink-2);margin:8px 0 10px;display:flex;gap:16px;flex-wrap:wrap">
-        <span>staked <b>${(p.stake||0).toLocaleString()}</b></span>
-        <span>earned <b>${(p.earned||0).toLocaleString()}</b></span>
-        <span>headroom <b>${(p.head||0).toLocaleString()}</b></span>
-        <span><b>${p.s10||0}</b> sessions in 10d</span>
-        <span>across <b>${rows.length}</b> model${rows.length===1?'':'s'}</span>
-      </div>
-      ${rows.length ? `<table><thead><tr><th>Model</th><th>Sessions 10d</th><th>Share</th></tr></thead><tbody>
-        ${rows.map(([mid,n])=>`<tr><td>${names[mid]||mid.slice(0,18)+"…"}</td>
-          <td class="num">${n}</td>
-          <td class="num">${(100*n/(p.s10||1)).toFixed(1)}%</td></tr>`).join("")}
-      </tbody></table>`
-      : `<div style="font-size:12.5px;color:var(--ink-3)">No sessions in the last 10 days.
-         Its bids are up; nothing has been bought.</div>`}
-    </div>`;
-  const c=document.getElementById("pv-close");
-  if(c) c.addEventListener("click", ()=>{ pvOpen=null; renderProviders(); });
-}
-
-async function loadPrice(){
-  try{
-    const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/"+MOR);
-    const j = await r.json();
-    const ps = (j.pairs||[]).filter(p=>(p.baseToken?.symbol||"").toUpperCase()==="MOR")
-      .sort((a,b)=>(b.liquidity?.usd||0)-(a.liquidity?.usd||0));
-    if(ps.length){
-      morUsd = parseFloat(ps[0].priceUsd);
-      document.getElementById("pricenote").textContent =
-        "MOR ≈ $"+morUsd.toFixed(4)+" ("+ps[0].dexId+", liquidity $"+
-        Math.round(ps[0].liquidity?.usd||0).toLocaleString()+")";
-    }
-  }catch(e){ /* price is decoration; never block the page on it */ }
-}
-
-document.getElementById("refresh").addEventListener("click", load);
-loadPrice().then(load);
-loadUptime();
-loadCensus();
-setInterval(load, 60000);
-setInterval(loadUptime, 60000);
-setInterval(loadPrice, 300000);
 </script>
-</body>
-</html>
