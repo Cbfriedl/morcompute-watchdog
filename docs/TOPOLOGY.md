@@ -7,7 +7,9 @@ Anything that names which address belongs to this operator stays on the VPS.
 ```
                  VPS (Fedora, "MORProvider")
                  ├── morpheus-router  (Docker)  ← the actual provider node
-                 ├── /root/morpheus/private/    ← private dashboard, tailnet only
+                 ├── /root/morpheus/private/    ← private dashboard, port 8090
+                 │      └── reachable ONLY over Tailscale, 100.72.159.65
+                 │            phone + laptop join the tailnet; no public listener
                  └── /root/morpheus/census/     ← builds the public data, pushes it
                                 │
                                 │  publish.sh  (strips identity, stamps assets)
@@ -85,11 +87,76 @@ Two workflows were retired on 2026-08-20:
 
 ## 3. Private — the tailnet dashboard
 
-`private_serve.py` binds to **`127.0.0.1:8090` and the tailnet address only,
-never `0.0.0.0`**. Tabs: My node, Compare, Trends, Market, Models, Providers.
+Tabs: My node, Compare, Trends, Market, Models, Providers. Gitignored and never
+published: `private/`, `margin.json`, `reputation.json`, `snapshots.jsonl`.
 
-Gitignored and never published: `private/`, `margin.json`, `reputation.json`,
-`snapshots.jsonl`.
+### Tailscale
+
+The dashboard is reachable only from devices on the tailnet. There is no public
+listener, no port forward, no reverse proxy and no auth layer — membership of
+the tailnet *is* the authentication.
+
+Tailnet `tail95835c.ts.net`, account `cbfriedl@`. Three devices:
+
+| Device | Tailscale IP | OS | Key expiry |
+|---|---|---|---|
+| `morprovider` (the VPS) | `100.72.159.65` | linux | **disabled** |
+| `laptop` | `100.82.7.73` | linux | **disabled** |
+| `Chris's S22 Ultra` | `100.125.73.114` | android | expires 2027-02-15 |
+
+MagicDNS is on, so the box is also `morprovider.tail95835c.ts.net`. Reach the
+dashboard at either:
+
+```
+http://100.72.159.65:8090/
+http://morprovider.tail95835c.ts.net:8090/
+```
+
+Disabling key expiry on a device matters: when a node key expires Tailscale drops
+the device off the tailnet and the dashboard simply stops resolving, with no
+error that points at the cause. It is off for the VPS and the laptop. **The phone
+still expires 2027-02-15** and should be disabled the same way, from the machine
+list at `login.tailscale.com`.
+
+### How the binding works
+
+`private_serve.py` chooses its address in this order:
+
+```python
+BIND = os.environ.get("PRIVATE_BIND", "")
+...
+host = BIND or tailscale_ip() or "127.0.0.1"     # tailscale ip -4
+```
+
+**Never `0.0.0.0`.** The box has no firewall, so binding all interfaces would put
+this page on the public internet.
+
+Two units run the same script on port 8090, giving two listeners:
+
+| Unit | `PRIVATE_BIND` | Listens on |
+|---|---|---|
+| `private-dash.service` | `127.0.0.1` | loopback — for SSH tunnels and local curl |
+| `private-dash-tailnet.service` | unset → `tailscale ip -4` | `100.72.159.65` — for the phone and laptop |
+
+The tailnet unit carries `After=tailscaled.service` and `Wants=tailscaled.service`
+so it starts after the daemon.
+
+**Boot-order caveat, not yet tested against a real reboot.** If the tailnet unit
+starts before `tailscale ip -4` returns an address, it falls back to `127.0.0.1`
+— where `private-dash.service` is already bound — so it fails with EADDRINUSE,
+exits, and `Restart=always` / `RestartSec=20` brings it back once tailscaled is
+up. That self-heals, but incidentally rather than by design: the collision is
+what saves it. If the loopback unit were ever removed, a slow tailscaled would
+leave the tailnet dashboard silently bound to loopback and unreachable from the
+phone. Verify with `ss -lntp | grep 8090` after any reboot — the correct state is
+**two** listeners, `127.0.0.1:8090` and `100.72.159.65:8090`.
+
+### Adding a device
+
+1. Install Tailscale on the device and sign in as the same account.
+2. `tailscale status` on the box should list it.
+3. Disable key expiry for it at `login.tailscale.com` → Machines.
+4. Browse to `http://100.72.159.65:8090/`. Nothing needs opening on the VPS.
 
 ## The identity rule
 
