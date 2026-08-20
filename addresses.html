@@ -32,7 +32,6 @@
   <div class="toolbar">
     <input type="search" id="q" placeholder="filter address…" aria-label="Filter addresses">
     <label class="chkl"><input type="checkbox" id="hidechoked"> hide choked</label>
-    <label class="chkl"><input type="checkbox" id="hideself"> hide self-dealt</label>
     <label class="chkl"><input type="checkbox" id="earnonly"> earned in window</label>
     <span class="selcount" id="cnt"></span>
   </div>
@@ -103,10 +102,9 @@ function build(){
 function filtered(){
   const q = document.getElementById("q").value.trim().toLowerCase();
   const hc = document.getElementById("hidechoked").checked;
-  const hs = document.getElementById("hideself").checked;
   const eo = document.getElementById("earnonly").checked;
   return rows.filter(r=>
-    (!q || r.a.includes(q)) && !(hc && r.choked) && !(hs && r.self) && !(eo && !(r.val>0)));
+    (!q || r.a.includes(q)) && !(hc && r.choked) && !(eo && !(r.val>0)));
 }
 
 function drawKpis(){
@@ -121,16 +119,16 @@ function drawKpis(){
     kpi("Choked", int(choked.length),
         rows.length? pct(100*choked.length/rows.length,0)+" cannot be paid":"none","choke"),
     kpi("Earned anything", int(earning),
-        "in "+tfLabel()+" · excl. self-dealt","earn"),
-    kpi("Sessions", int(sess), tfLabel()+" · excl. self-dealt","earn"),
-    kpi("Value paid", mor(val)+" MOR", tfLabel()+" · excl. self-dealt","earn"),
+        "in "+tfLabel(),"earn"),
+    kpi("Sessions", int(sess), tfLabel(),"earn"),
+    kpi("Value paid", mor(val)+" MOR", tfLabel(),"earn"),
     kpi("Total staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
         "by addresses with live bids","hold"),
     kpi("Staked and contending", mor(contend.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
         "MOR that can still earn","hold"),
   ].join("");
   document.getElementById("tfnote").textContent =
-    int(sess)+" arm's-length sessions · "+mor(val)+" MOR";
+    int(sess)+" sessions · "+mor(val)+" MOR";
 }
 
 function draw(){
@@ -138,8 +136,7 @@ function draw(){
   document.getElementById("tb").innerHTML = shown.map(r=>
     "<tr"+(r.choked?" class='choked'":"")+">"+
     "<td class='mono"+(r.choked?" chokeaddr":"")+"'>"+
-      "<a href='provider.html#"+esc(r.a)+"'>"+short(r.a)+"</a>"+
-      (r.self?" <span class='pill cap'>self-dealt</span>":"")+"</td>"+
+      "<a href='provider.html#"+esc(r.a)+"'>"+short(r.a)+"</a></td>"+
     "<td class='num'>"+int(r.bids)+"</td><td class='num'>"+int(r.models)+"</td>"+
     "<td class='num'>"+price(r.mn)+"</td><td class='num'>"+price(r.md)+"</td>"+
     "<td class='num'>"+price(r.mx)+"</td>"+
@@ -156,7 +153,7 @@ function draw(){
 build(); drawKpis();
 const S = sortable(document.getElementById("t"), rows, draw, "val", -1);
 ["q"].forEach(id=>document.getElementById(id).addEventListener("input", draw));
-["hidechoked","hideself","earnonly"].forEach(id=>
+["hidechoked","earnonly"].forEach(id=>
   document.getElementById(id).addEventListener("change", draw));
 document.querySelectorAll("input[name=tf]").forEach(r=>r.addEventListener("change", e=>{
   TF = e.target.value; build(); drawKpis(); S.resort(); }));

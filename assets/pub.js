@@ -18,7 +18,12 @@ export const fmt = (v, d = 2) =>
   : v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 export const int = v => v == null || !isFinite(v) ? "—" : Math.round(v).toLocaleString("en-US");
 export const pct = (v, d = 0) => v == null || !isFinite(v) ? "—" : fmt(v, d) + "%";
-export const short = a => !a ? "—" : a.slice(0, 10);
+/* Addresses render as 0xHHHH...HHHH — first four and last four hex digits.
+   A leading-prefix-only form collides across addresses that share a prefix. */
+export const short = a => {
+  const h = String(a || "").replace(/^0x/i, "");
+  return h ? "0x" + h.slice(0, 4) + "..." + h.slice(-4) : "—";
+};
 
 /* MOR amounts span six orders of magnitude across this market, so a fixed
    precision is either noise at the top or all zeroes at the bottom. */

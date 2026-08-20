@@ -100,9 +100,6 @@ function show(addrRaw){
     kpi("Sessions today", h? int(h.s1) : "—", h? mor(h.mor1)+" MOR":"—","earn"),
     kpi("Distinct buyers", h? int(h.buyers) : "—",
         h&&h.topBuyer? "top holds "+pct(h.topShare,1):"—", h&&h.buyers===1? "choke":"hold"),
-    kpi("Self-dealt", h? pct(h.selfShare,1) : "—",
-        h&&h.selfShare>=99.5? "it is its own only customer":"share of its own sessions it bought",
-        h&&h.selfShare>=50? "choke":"time"),
     kpi("First session", h? day(h.first) : "—", h? "last "+day(h.last):"never sold","time"),
     kpi("Registered", d? day(d.createdAt) : "—", "provider record created","time"),
   ].join("");
@@ -136,10 +133,6 @@ function show(addrRaw){
       "<p>Its headroom is zero: <span class='mono'>limitPeriodEarned</span> has reached "+
       "<span class='mono'>stake</span>. Its bids are still live and it will still serve "+
       "requests — it simply accrues nothing until it claims and re-stakes.</p></div>" : "")+
-    (h && h.selfShare >= 99.5 ? "<div class='callout'><h3>Self-dealt</h3>"+
-      "<p>Every session this address has ever recorded was opened by itself. "+
-      "It is both the provider and the buyer, so its volume represents no external "+
-      "demand and is excluded from the network value figures elsewhere on this site.</p></div>" : "")+
     (chart ? "<section><h2>Where this provider earns</h2><div class='card'>"+
       "<div class='plot'>"+chart+"</div>"+
       "<p class='cap'>MOR earned per model, all time, from every closed session. "+
@@ -163,15 +156,13 @@ function intro(){
   return "<section><h2>Largest providers by lifetime MOR</h2>"+
     "<p>Pick one to start, or paste any address above.</p>"+
     "<div class='tablewrap'><table><thead><tr><th>Address</th><th>MOR all time</th>"+
-    "<th>Sessions</th><th>Buyers</th><th>Self-dealt</th><th>Live bids</th></tr></thead><tbody>"+
+    "<th>Sessions</th><th>Buyers</th><th>Live bids</th></tr></thead><tbody>"+
     ranked.map(r=>{
       const d = PD[r.a] || {};
-      const self = (r.selfShare||0) >= 99.5;
-      return "<tr"+(self?" class='choked'":"")+"><td class='mono'>"+
+      return "<tr><td class='mono'>"+
         "<a href='#"+esc(r.a)+"' data-go='"+esc(r.a)+"'>"+short(r.a)+"</a></td>"+
         "<td class='num'>"+mor(r.morAll)+"</td><td class='num'>"+int(r.sAll)+"</td>"+
         "<td class='num'>"+int(r.buyers)+"</td>"+
-        "<td class='num'>"+(self?"<span class='pill cap'>100%</span>":pct(r.selfShare,1))+"</td>"+
         "<td class='num'>"+int(d.bids||0)+"</td></tr>";
     }).join("")+"</tbody></table></div></section>";
 }

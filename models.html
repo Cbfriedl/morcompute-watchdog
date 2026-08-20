@@ -138,7 +138,7 @@ function drawKpis(){
     kpi("Models with bids", int(rows.length), "of "+int(C.registeredModels)+" registered","time"),
     kpi("Saw demand", int(withD),
         rows.length? pct(100*withD/rows.length,1)+" took a session · "+tfLabel():"—","earn"),
-    kpi("Sessions", int(S), tfLabel()+" · excl. self-dealt","earn"),
+    kpi("Sessions", int(S), tfLabel(),"earn"),
     kpi("Value paid", mor(V)+" MOR",
         (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
     kpi("Live bids", int(C.totalBids), "across all models","hold"),
@@ -153,7 +153,7 @@ function draw(){
     "<tr class='clickable"+(sel.has(r.id)?" selrow":"")+"' data-id='"+esc(r.id)+"'>"+
     "<td class='chk'><input type='checkbox' data-id='"+esc(r.id)+"'"+(sel.has(r.id)?" checked":"")+
       " aria-label='select "+esc(r.n)+"'></td>"+
-    "<td>"+esc(r.n)+(r.selfDealt?" <span class='pill cap'>self-dealt</span>":"")+
+    "<td>"+esc(r.n)+
       (r.t?" <span class='mono' style='color:var(--ink-3);font-size:11px'>"+esc(r.t)+"</span>":"")+"</td>"+
     "<td class='num'>"+int(r.sessions)+"</td>"+
     "<td class='num'>"+(r.value?mor(r.value):"—")+"</td>"+

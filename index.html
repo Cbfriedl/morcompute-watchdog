@@ -33,32 +33,21 @@
     <h2>Where the money actually goes</h2>
     <div class="card">
       <div class="plot" id="plot-earn"></div>
-      <div class="legend">
-        <span class="lg"><span class="sw" style="background:var(--band-high)"></span>Self-dealt — the provider is its own buyer</span>
-        <span class="lg"><span class="sw" style="background:var(--band-low)"></span>Arm's-length counterparty</span>
-      </div>
       <p class="cap" id="earn-cap"></p>
     </div>
-    <div class="callout" id="selfcall"></div>
   </section>
 
   <section>
-    <h2>The market has very few buyers</h2>
-    <p>
-      Sessions are numerous; the addresses paying for them are not. This is the
-      concentration that matters — a provider's revenue is only as durable as
-      the counterparty behind it.
-    </p>
+    <h2>Buyers per provider</h2>
     <div class="tablewrap">
       <table>
         <thead><tr>
           <th>Provider</th><th>MOR earned</th><th>Sessions</th>
-          <th>Distinct buyers</th><th>Top buyer share</th><th>Self-dealt</th>
+          <th>Distinct buyers</th><th>Top buyer share</th>
         </tr></thead>
         <tbody id="buyerbody"></tbody>
       </table>
     </div>
-    <div class="note" id="buyernote"></div>
   </section>
 
   <section>
@@ -185,9 +174,7 @@ const sKey = () => K[TF][0], mKey = () => K[TF][1], tfLabel = () => K[TF][2];
 function drawKpis(){
   const MS = C.models||[];
   const sum = k => MS.reduce((a,m)=>a+(m[k]||0),0);
-  /* The self-dealt model is excluded from value: one address books ~50k MOR
-     sessions against its own listing, which swamps every other number on the
-     page and describes nothing a third party could ever participate in. */
+  /* SELF_DEALT_MODEL is excluded from the value totals — see pub.js. */
   const sumX = k => MS.reduce((a,m)=>a+(m.id===SELF_DEALT_MODEL?0:(m[k]||0)),0);
   const S = sum(sKey()), V = sum(mKey()), Vx = sumX(mKey()), Sx = sumX(sKey());
   const excl = V - Vx;
@@ -206,11 +193,9 @@ function drawKpis(){
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
         live.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none","choke"),
-    kpi("Sessions", int(Sx), tfLabel()+(excl>0? " · excl. self-dealt":""),"earn"),
+    kpi("Sessions", int(Sx), tfLabel(),"earn"),
     kpi("Value paid", mor(Vx)+" MOR",
         (days? fmt(Vx/days,1)+" MOR/day · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
-    kpi("Excluded as self-dealt", mor(excl)+" MOR",
-        V? pct(100*excl/V,1)+" of gross · one address, both sides":"—","choke"),
     kpi("Median bid price", price(C.p50), "MOR / day","earn"),
     kpi("Cheapest decile", price(C.p10), "10th percentile","earn"),
     kpi("At the ceiling", int(C.atCeiling),
@@ -218,7 +203,7 @@ function drawKpis(){
   ].join("");
 
   document.getElementById("tfnote").textContent =
-    Sx ? int(Sx)+" arm's-length sessions · "+mor(Vx)+" MOR" : "no sessions in this window";
+    Sx ? int(Sx)+" sessions · "+mor(Vx)+" MOR" : "no sessions in this window";
 }
 
 /* ---------------- earnings by provider ---------------- */
@@ -233,41 +218,20 @@ function drawEarn(){
   const tot = Object.values(HP).reduce((a,p)=>a+(p[key]||0),0) || 1;
   box.innerHTML = hbar(rows.map(r=>({
       label: short(r.a), value: r.v, id: r.a,
-      color: r.self ? "var(--band-high)" : "var(--band-low)",
+      color: "var(--band-low)",
       right: mor(r.v),
       tipHtml: "<span class='t'>"+r.a.slice(0,14)+"…</span><br>"+
                mor(r.v)+" MOR · "+int(r.s)+" sessions<br>"+
                pct(100*r.v/tot,1)+" of network value<br>"+
                r.buyers+" distinct buyer"+(r.buyers===1?"":"s")+
-               " · top "+pct(r.top,1)+
-               (r.self? "<br><b>self-dealt</b>":"")
+               " · top "+pct(r.top,1)
     })), {aria:"MOR earned per provider", rowH:26});
-  const self = rows.filter(r=>r.self).reduce((a,r)=>a+r.v,0);
   document.getElementById("earn-cap").innerHTML =
     "MOR earned over <strong>"+tfLabel()+"</strong>, summed from every closed session in the "+
-    "complete on-chain history — not sampled. Top 14 of "+Object.keys(HP).length+
-    " providers. <strong>Click a bar</strong> to open that provider. "+
-    (self>0 ? "Self-dealt volume is "+pct(100*self/tot,1)+" of the total shown."
-            : "No self-dealt volume in this window.");
+    "complete on-chain history. Top 14 of "+Object.keys(HP).length+
+    " providers. <strong>Click a bar</strong> to open that provider.";
 }
 
-/* ---------------- self-dealer callout ---------------- */
-function drawSelf(){
-  const p = HP[SELF_DEALER]; const el = document.getElementById("selfcall");
-  if(!p){ el.style.display="none"; return; }
-  const key = mKey(), tot = Object.values(HP).reduce((a,q)=>a+(q[key]||0),0) || 1;
-  const share = 100*(p[key]||0)/tot;
-  el.innerHTML =
-    "<h3>One address takes "+pct(share,1)+" — and its only customer is itself</h3>"+
-    "<p><span class='mono'>"+short(SELF_DEALER)+"</span> earned <strong>"+mor(p[key])+" MOR</strong> "+
-    "over "+tfLabel()+", against a network total of "+mor(tot)+". Every one of its "+
-    int(p.sAll)+" sessions ever recorded has <span class='mono'>user == provider</span>: "+
-    "<strong>"+pct(p.selfShare,1)+"</strong> self-dealt. It does this with a single listing, "+
-    "on a model it registered itself.</p>"+
-    "<p>It is counted in the chart above because it is real on-chain volume, and "+
-    "excluded from the <em>Value paid</em> figure because no third party can bid for it. "+
-    "Every other number on this site is more useful with it set aside.</p>";
-}
 
 /* ---------------- buyer concentration ---------------- */
 function drawBuyers(){
@@ -277,20 +241,12 @@ function drawBuyers(){
   const rows = Object.entries(HP).map(([a,p])=>({a,...p}))
     .filter(r=>(r[skey]||0) > 0).sort((x,y)=>(y[key]||0)-(x[key]||0)).slice(0,14);
   tb.innerHTML = rows.map(r=>{
-    const self = (r.selfShare||0) >= 99.5;
-    return "<tr"+(self?" class='choked'":"")+">"+
+    return "<tr>"+
       "<td class='mono'><a href='provider.html#"+esc(r.a)+"'>"+short(r.a)+"</a></td>"+
       "<td class='num'>"+mor(r[key])+"</td><td class='num'>"+int(r[skey])+"</td>"+
       "<td class='num'>"+int(r.buyers)+"</td>"+
-      "<td class='num'>"+pct(r.topShare,1)+"</td>"+
-      "<td class='num'>"+(self?"<span class='pill cap'>100%</span>":pct(r.selfShare,1))+"</td></tr>";
+      "<td class='num'>"+pct(r.topShare,1)+"</td></tr>";
   }).join("");
-  const solo = Object.values(HP).filter(p=>p.sAll>0 && p.buyers===1 && p.selfShare<99.5).length;
-  document.getElementById("buyernote").innerHTML =
-    "<p class='tight'><strong>"+solo+" providers have sold to exactly one address, and it is not "+
-    "themselves.</strong> Whether such an address is a real aggregator routing many end users, or a "+
-    "single subsidised traffic source, cannot be determined from chain data — the addresses do not "+
-    "say. That is the question worth answering before committing capital here.</p>";
 }
 
 /* ---------------- daily history ---------------- */
@@ -304,8 +260,7 @@ async function drawHistory(){
   const w=940,h=280,padL=46,padR=54,padT=12,padB=34;
   const n=days.length;
   const maxS = Math.max(...days.map(d=>d[1]));
-  /* MOR/day spans five orders of magnitude — the self-dealer's 50k-MOR days sit
-     beside 0.4-MOR days at the start — so it only reads on a log axis. */
+  /* MOR/day spans five orders of magnitude, so it only reads on a log axis. */
   const mors = days.map(d=>Math.max(d[2],1e-3));
   const lo=Math.log10(Math.min(...mors)), hi=Math.log10(Math.max(...mors));
   const X = i => padL + (i/(n-1))*(w-padL-padR);
@@ -369,8 +324,7 @@ function drawProviders(){
     "<h3>"+choked.length+" of "+live.length+" registered providers have run their headroom to zero</h3>"+
     "<p>Their earnings equal their stake, so they are earning <strong>nothing</strong> right "+
     "now — silently. No error, no log line, no on-chain event marks the transition.</p>"+
-    "<p>Of those "+choked.length+", only <strong>"+real.length+"</strong> hold 100 MOR or more; the rest "+
-    "carry a fraction of a MOR and look like abandoned test nodes. "+
+    "<p>Of those "+choked.length+", <strong>"+real.length+"</strong> hold 100 MOR or more. "+
     "This is a re-stake trigger, not an income ceiling: "+
     "<span class='mono'>providerRegister</span> adds to stake without touching "+
     "<span class='mono'>limitPeriodEarned</span>, so staking more reopens headroom 1:1 and "+
@@ -399,7 +353,7 @@ function drawProviders(){
   sortable(document.getElementById("ptable"), rows, draw, "rate", -1);
 }
 
-function redraw(){ drawKpis(); drawEarn(); drawSelf(); drawBuyers(); drawPx(); drawProviders(); }
+function redraw(){ drawKpis(); drawEarn(); drawBuyers(); drawPx(); drawProviders(); }
 redraw();
 drawHistory();
 
