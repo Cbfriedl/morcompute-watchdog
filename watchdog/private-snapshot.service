@@ -1,0 +1,9 @@
+[Unit]
+Description=Append one position snapshot to the private history
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/root/morpheus/provider.env
+Environment=SNAPSHOT_FILE=/root/morpheus/private/snapshots.jsonl
+ExecStart=/usr/bin/python3 /root/morpheus/snapshot.py

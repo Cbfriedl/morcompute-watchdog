@@ -1,0 +1,9 @@
+[Unit]
+Description=Hourly private position snapshot
+
+[Timer]
+OnCalendar=*:41
+Persistent=true
+
+[Install]
+WantedBy=timers.target
