@@ -43,7 +43,11 @@ if [ -s "$HDB" ]; then
   python3 research/foundation/gen_provider_history.py "$HDB" providers-history.json
 fi
 
-git add census-full.json providers-history.json
+# Re-stamp the asset URLs before staging: if pub.js/pub.css changed in this
+# checkout, open tabs must be forced to refetch them.
+if [ -x ./stamp.sh ]; then ./stamp.sh; fi
+
+git add -A census-full.json providers-history.json index.html models.html addresses.html provider.html
 if git diff --staged --quiet; then
   echo "census unchanged — nothing to publish"
   exit 0
