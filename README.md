@@ -54,12 +54,11 @@ together are under 250 KB.
 
 ### Two conventions the numbers depend on
 
-**Self-dealt volume is excluded from value.** One address is both the provider
-and the buyer on every session it books, at the protocol's maximum price. Left
-in, it is 91% of the last ten days' MOR and swamps every other figure. It is
-still shown — in the earnings chart, in the address table, and in its own
-provider page — but it is subtracted from anything labelled *value paid*, and
-the amount removed is displayed beside the total rather than hidden.
+**Totals include every model.** `MORDIEM Venice Models` carries a single bid at
+the protocol maximum of 864 MOR/day and accounts for the large majority of MOR
+paid in any window. It is counted in *sessions* and *value paid* like any other
+model. Because one line that large moves the totals on its own, *value paid
+excluding MORDIEM* is reported alongside as its own figure.
 
 **MOR earned is gross, not received.** It is `pricePerSecond × billable
 duration` summed over closed sessions. About 44% of sessions were never

@@ -89,8 +89,8 @@
 <div id="tip" role="status" aria-live="polite"></div>
 
 <script type="module">
-import {DIAMOND,SELF_DEALT_MODEL,CHOKE,fmt,int,pct,mor,price,short,
-        nav,kpi,esc,census,wireTip,sortable,loghist} from "./assets/pub.js?v=878bbfed64e7";
+import {DIAMOND,MORDIEM_MODEL,CHOKE,fmt,int,pct,mor,price,short,
+        nav,kpi,esc,census,wireTip,sortable,loghist} from "./assets/pub.js?v=ba5a441e7692";
 
 document.getElementById("navslot").innerHTML = nav("models.html");
 let C;
@@ -112,7 +112,7 @@ function build(){
   rows = (C.models||[]).map(m=>{
     const s = m[sk]||0, v = m[mk]||0;
     return {...m, sessions:s, value:v, perSession: s? v/s : null,
-            selfDealt: m.id===SELF_DEALT_MODEL};
+            mordiem: m.id===MORDIEM_MODEL};
   });
 }
 
@@ -130,9 +130,13 @@ function filtered(){
 
 function drawKpis(){
   const [sk,mk] = K[TF];
-  const sumX = k => rows.reduce((a,r)=>a+(r.selfDealt?0:(r[k]||0)),0);
-  const S = sumX("sessions"), V = sumX("value");
-  const withD = rows.filter(r=>r.sessions>0 && !r.selfDealt).length;
+  /* Totals are the whole registry, MORDIEM Venice Models included — it is real
+     on-chain volume and the table below has always listed it. Its contribution
+     is broken out rather than netted away. */
+  const sum  = k => rows.reduce((a,r)=>a+(r[k]||0),0);
+  const sumX = k => rows.reduce((a,r)=>a+(r.mordiem?0:(r[k]||0)),0);
+  const S = sum("sessions"), V = sum("value"), Vx = sumX("value"), Sx = sumX("sessions");
+  const withD = rows.filter(r=>r.sessions>0).length;
   const days = TF==="d1"?1:TF==="d10"?(C.windowDays||10):null;
   document.getElementById("kpis").innerHTML = [
     kpi("Models with bids", int(rows.length), "of "+int(C.registeredModels)+" registered","time"),
@@ -141,6 +145,8 @@ function drawKpis(){
     kpi("Sessions", int(S), tfLabel(),"earn"),
     kpi("Value paid", mor(V)+" MOR",
         (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
+    kpi("Value paid excl. MORDIEM", mor(Vx)+" MOR",
+        (V? pct(100*Vx/V,1)+" of gross · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
     kpi("Live bids", int(C.totalBids), "across all models","hold"),
     kpi("Median bid price", price(C.p50), "MOR / day","hold"),
   ].join("");

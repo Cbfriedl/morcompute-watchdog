@@ -5,10 +5,11 @@
 
 export const DIAMOND = "0x6aBE1d282f72B474E54527D93b979A4f64d3030a";
 
-/* The one address the census cannot describe honestly without singling it out:
-   it is both the provider and the buyer on every session it books. */
-export const SELF_DEALER = "0xd01c1b0eedbe341c409369177478f2eabbeee848";
-export const SELF_DEALT_MODEL = "0x847be4fc18c6f498bacda1c4ec85d4845e8e4d65718fc488d09b306c422e0f85";
+/* MORDIEM Venice Models — one model, one bidder, at the 864 MOR/day ceiling.
+   It is included in every headline total; these ids exist so its contribution
+   can also be reported on its own. */
+export const MORDIEM_ADDR  = "0xd01c1b0eedbe341c409369177478f2eabbeee848";
+export const MORDIEM_MODEL = "0x847be4fc18c6f498bacda1c4ec85d4845e8e4d65718fc488d09b306c422e0f85";
 
 export const CHOKE = 0.5;          /* MOR of headroom below which a provider cannot be paid */
 

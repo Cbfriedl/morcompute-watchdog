@@ -149,8 +149,8 @@
 <div id="tip" role="status" aria-live="polite"></div>
 
 <script type="module">
-import {DIAMOND,SELF_DEALER,SELF_DEALT_MODEL,CHOKE,fmt,int,pct,mor,price,short,day,
-        nav,kpi,esc,census,wireTip,sortable,hbar,loghist} from "./assets/pub.js?v=878bbfed64e7";
+import {DIAMOND,MORDIEM_MODEL,CHOKE,fmt,int,pct,mor,price,short,day,
+        nav,kpi,esc,census,wireTip,sortable,hbar,loghist} from "./assets/pub.js?v=ba5a441e7692";
 
 document.getElementById("navslot").innerHTML = nav("index.html");
 const fail = m => { const e=document.getElementById("err");
@@ -174,10 +174,11 @@ const sKey = () => K[TF][0], mKey = () => K[TF][1], tfLabel = () => K[TF][2];
 function drawKpis(){
   const MS = C.models||[];
   const sum = k => MS.reduce((a,m)=>a+(m[k]||0),0);
-  /* SELF_DEALT_MODEL is excluded from the value totals — see pub.js. */
-  const sumX = k => MS.reduce((a,m)=>a+(m.id===SELF_DEALT_MODEL?0:(m[k]||0)),0);
+  /* Headline sessions and value are the whole market, MORDIEM included — it is
+     real on-chain volume and leaving it out made these totals disagree with the
+     chain. Its contribution is broken out as its own KPI, not netted away. */
+  const sumX = k => MS.reduce((a,m)=>a+(m.id===MORDIEM_MODEL?0:(m[k]||0)),0);
   const S = sum(sKey()), V = sum(mKey()), Vx = sumX(mKey()), Sx = sumX(sKey());
-  const excl = V - Vx;
   const days = TF==="d1" ? 1 : TF==="d10" ? (C.windowDays||10) : null;
 
   const live = Object.entries(PD).filter(([,p])=>!p.deleted);
@@ -193,9 +194,11 @@ function drawKpis(){
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
         live.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none","choke"),
-    kpi("Sessions", int(Sx), tfLabel(),"earn"),
-    kpi("Value paid", mor(Vx)+" MOR",
-        (days? fmt(Vx/days,1)+" MOR/day · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
+    kpi("Sessions", int(S), tfLabel(),"earn"),
+    kpi("Value paid", mor(V)+" MOR",
+        (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
+    kpi("Value paid excl. MORDIEM", mor(Vx)+" MOR",
+        (V? pct(100*Vx/V,1)+" of gross · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
     kpi("Median bid price", price(C.p50), "MOR / day","earn"),
     kpi("Cheapest decile", price(C.p10), "10th percentile","earn"),
     kpi("At the ceiling", int(C.atCeiling),
@@ -203,7 +206,7 @@ function drawKpis(){
   ].join("");
 
   document.getElementById("tfnote").textContent =
-    Sx ? int(Sx)+" sessions · "+mor(Vx)+" MOR" : "no sessions in this window";
+    S ? int(S)+" sessions · "+mor(V)+" MOR" : "no sessions in this window";
 }
 
 /* ---------------- earnings by provider ---------------- */
