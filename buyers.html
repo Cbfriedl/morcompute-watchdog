@@ -1,0 +1,238 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buyers — Morpheus census</title>
+<meta name="description" content="Every address that has opened a Morpheus session, with the models it buys, how many bidders compete for each, what it paid, and the average bid price it paid them at.">
+<link rel="stylesheet" href="assets/pub.css?v=9b01a33aaaab">
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Base mainnet · full chain census</div>
+    <h1>Buyers</h1>
+    <p class="standfirst">
+      Every address that has opened a session, and what it actually bought.
+      Select a row to break it out by model — how many bidders compete for each,
+      how many sessions that address took, what it paid, and the average bid
+      price it paid them at. Addresses that buy from themselves are marked;
+      that volume is real and is counted, not netted away.
+    </p>
+  </header>
+
+  <div id="navslot"></div>
+  <div class="warnbox" id="err" style="display:none"></div>
+
+  <div class="tfbar">
+    <span class="lbl">Timeframe</span>
+    <label class="chkl"><input type="radio" name="tf" value="d1"> today</label>
+    <label class="chkl"><input type="radio" name="tf" value="d10" checked> trailing 10 days</label>
+    <label class="chkl"><input type="radio" name="tf" value="all"> all time</label>
+    <span class="selcount" id="tfnote"></span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="filter address…" aria-label="Filter addresses">
+    <label class="chkl"><input type="checkbox" id="activeonly" checked> active in window</label>
+    <label class="chkl"><input type="checkbox" id="hideself"> hide self-dealing</label>
+    <span class="selcount" id="cnt"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table class="sortable" id="t">
+      <thead><tr>
+        <th data-k="a">Buyer<span class="ar">▲</span></th>
+        <th data-k="models" class="num">Models<span class="ar">▲</span></th>
+        <th data-k="sessions" class="num">Sessions<span class="ar">▲</span></th>
+        <th data-k="hours" class="num">Session-hours<span class="ar">▲</span></th>
+        <th data-k="paid" class="num">MOR paid<span class="ar">▲</span></th>
+        <th data-k="avg" class="num">Avg bid<span class="ar">▲</span></th>
+        <th data-k="share" class="num">Share<span class="ar">▲</span></th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+
+  <div class="pdetail" id="drill">
+    <div class="pdhead">
+      <span class="who mono" id="d-who"></span>
+      <button class="pdclose" id="d-close">close</button>
+    </div>
+    <div class="pdstats" id="d-stats"></div>
+    <div class="pdmodels">
+      <table>
+        <thead><tr>
+          <th>Model</th><th class="num">Bidders</th><th class="num">Sessions</th>
+          <th class="num">MOR paid</th><th class="num">Avg bid</th>
+        </tr></thead>
+        <tbody id="d-models"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="cap">
+    <strong>Avg bid</strong> is MOR paid divided by session-days
+    (<span class="mono">MOR ÷ seconds held ÷ 86400</span>), which recovers the
+    price per day actually paid. It is deliberately not the mean of the bid
+    prices on offer, nor an average across sessions: a 20-minute hold and a
+    24-hour hold each count as one session while the second is 72× the spend.
+    <strong>Bidders</strong> is how many live bids compete for that model
+    network-wide — a present-tense figure standing beside historical purchases,
+    so it moves when the book moves.
+  </p>
+  <p class="cap" id="asof"></p>
+
+  <footer id="foot"></footer>
+</div>
+
+<script type="module">
+import {DIAMOND,MORDIEM_ADDR,fmt,int,pct,mor,price,short,
+        nav,kpi,esc,sortable} from "./assets/pub.js?v=df8223ececa9";
+
+document.getElementById("navslot").innerHTML = nav("buyers.html");
+
+let B;
+try {
+  const r = await fetch("buyers.json?cb=" + Date.now());
+  if (!r.ok) throw new Error("buyers.json " + r.status);
+  B = await r.json();
+} catch (e) {
+  const el = document.getElementById("err"); el.style.display = "";
+  el.innerHTML = "<b>Could not load buyers.json.</b> " + esc(e.message); throw e;
+}
+
+let TF = "d10";
+/* per timeframe: session key, MOR key, avg-price key, model-count key, hours key, label */
+const K = {
+  d1:  ["s1",   "m1",   "p1",   "nm1",   "h1",   "today"],
+  d10: ["s10",  "m10",  "p10",  "nm10",  "h10",  "trailing " + (B.windowDays || 10) + " days"],
+  all: ["sAll", "mAll", "pAll", "nmAll", "hAll", "all time"],
+};
+const tfLabel = () => K[TF][5];
+
+/* rows is mutated in place, never reassigned: sortable() captures this exact
+   array, so swapping it for a new one on a timeframe change would leave resort()
+   sorting an orphan while the table drew the unsorted replacement. */
+const rows = [];
+let shown = [], picked = null;
+
+function build() {
+  const [sk, mk, pk, nk, hk] = K[TF];
+  const tot = (B.buyers || []).reduce((a, b) => a + (b[sk] || 0), 0);
+  rows.length = 0;
+  (B.buyers || []).forEach(b => rows.push({
+    a: b.a, self: b.self,
+    selfN: TF === "all" ? b.selfAll : b.self10,
+    models: b[nk] || 0, sessions: b[sk] || 0, paid: b[mk] || 0,
+    avg: b[pk] ?? null, hours: b[hk] || 0,
+    share: tot ? 100 * (b[sk] || 0) / tot : 0,
+    detail: b.models || [],
+  }));
+}
+
+function filtered() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const act = document.getElementById("activeonly").checked;
+  const hs = document.getElementById("hideself").checked;
+  return rows.filter(r => {
+    if (q && !r.a.toLowerCase().includes(q)) return false;
+    if (act && !r.sessions) return false;
+    if (hs && r.self) return false;
+    return true;
+  });
+}
+
+function drawKpis() {
+  const act = rows.filter(r => r.sessions > 0);
+  const S = act.reduce((a, r) => a + r.sessions, 0);
+  const V = act.reduce((a, r) => a + r.paid, 0);
+  const H = act.reduce((a, r) => a + r.hours, 0);
+  const selfV = act.filter(r => r.self).reduce((a, r) => a + r.paid, 0);
+  const top = act.slice().sort((a, b) => b.sessions - a.sessions)[0];
+  document.getElementById("kpis").innerHTML = [
+    kpi("Buyers", int(act.length), "opened a session · " + tfLabel(), "time"),
+    kpi("Sessions", int(S), tfLabel(), "earn"),
+    kpi("MOR paid", mor(V) + " MOR", S ? fmt(V / S, 4) + " MOR/session" : "—", "earn"),
+    kpi("Avg bid paid", price(H ? V / (H / 24) : null), "MOR / day, all buyers", "hold"),
+    kpi("Largest buyer", top ? pct(top.share, 1) : "—",
+        top ? short(top.a) + " · " + int(top.sessions) + " sessions" : "—", "hold"),
+    /* Self-dealing is broken out rather than netted away: it is real on-chain
+       volume, and removing it would make every total on this page wrong. */
+    kpi("Self-dealing", mor(selfV) + " MOR",
+        V ? pct(100 * selfV / V, 1) + " of MOR paid" : "—", "hold"),
+  ].join("");
+  document.getElementById("tfnote").textContent =
+    (TF === "d1" && !S) ? "no sessions recorded in today’s window yet" : "";
+}
+
+function drawDrill() {
+  const drill = document.getElementById("drill");
+  const r = rows.find(x => x.a === picked);
+  if (!r) { drill.classList.remove("open"); return; }
+  const [sk, mk, pk] = K[TF];
+  document.getElementById("d-who").innerHTML = esc(r.a) +
+    (r.self ? " <span class='pill cap'>self-dealing" +
+      (r.selfN ? " · " + int(r.selfN) : "") + "</span>" : "") +
+    (r.a === MORDIEM_ADDR ? " <span class='pill cap'>MORDIEM</span>" : "");
+  document.getElementById("d-stats").innerHTML =
+    "<span><b>" + int(r.models) + "</b> models · " + tfLabel() + "</span>" +
+    "<span><b>" + int(r.sessions) + "</b> sessions</span>" +
+    "<span><b>" + fmt(r.hours, 1) + "</b> session-hours</span>" +
+    "<span><b>" + mor(r.paid) + "</b> MOR paid</span>" +
+    "<span>avg bid <b>" + price(r.avg) + "</b> MOR/day</span>";
+  const ms = r.detail.filter(m => (m[sk] || 0) > 0)
+                     .sort((a, b) => (b[mk] || 0) - (a[mk] || 0));
+  document.getElementById("d-models").innerHTML = ms.length ? ms.map(m =>
+    "<tr><td>" + esc(m.n) + "</td>" +
+    "<td class='num'>" + (m.b ? int(m.b) : "—") + "</td>" +
+    "<td class='num'>" + int(m[sk]) + "</td>" +
+    "<td class='num'>" + mor(m[mk]) + "</td>" +
+    "<td class='num'>" + price(m[pk]) + "</td></tr>").join("")
+    : "<tr><td colspan='5'>no sessions from this address in " + esc(tfLabel()) + "</td></tr>";
+  drill.classList.add("open");
+}
+
+function draw() {
+  shown = filtered();
+  document.getElementById("tb").innerHTML = shown.map(r =>
+    "<tr class='clickable" + (r.a === picked ? " selrow" : "") + "' data-a='" + esc(r.a) + "'>" +
+    "<td class='mono'>" + esc(short(r.a)) +
+      (r.self ? " <span class='pill cap'>self</span>" : "") + "</td>" +
+    "<td class='num'>" + int(r.models) + "</td>" +
+    "<td class='num'>" + int(r.sessions) + "</td>" +
+    "<td class='num'>" + fmt(r.hours, 1) + "</td>" +
+    "<td class='num'>" + (r.paid > 0 ? mor(r.paid) : "—") + "</td>" +
+    "<td class='num'>" + price(r.avg) + "</td>" +
+    "<td class='num'>" + pct(r.share, 1) + "</td></tr>").join("")
+    || "<tr><td colspan='7'>no buyers match</td></tr>";
+  document.getElementById("cnt").textContent =
+    shown.length + " of " + rows.length + " buyers · " + tfLabel();
+  drawDrill();
+}
+
+document.getElementById("tb").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-a]");
+  if (!tr) return;
+  picked = (picked === tr.dataset.a) ? null : tr.dataset.a;
+  draw();
+  if (picked) document.getElementById("drill").scrollIntoView({behavior: "smooth", block: "nearest"});
+});
+document.getElementById("d-close").addEventListener("click", () => { picked = null; draw(); });
+
+build();
+drawKpis();
+const S = sortable(document.getElementById("t"), rows, draw, "sessions", -1);
+document.getElementById("q").addEventListener("input", draw);
+["activeonly", "hideself"].forEach(id =>
+  document.getElementById(id).addEventListener("change", draw));
+document.querySelectorAll("input[name=tf]").forEach(el =>
+  el.addEventListener("change", e => { TF = e.target.value; build(); drawKpis(); S.resort(); }));
+
+document.getElementById("asof").textContent =
+  "Sessions counted to " + (B.sessionsAsOf || "—") +
+  ". The census is rebuilt once a day, so the today window stays empty until it runs.";
+document.getElementById("foot").innerHTML =
+  "Census " + esc((B.generated || "").slice(0, 10)) +
+  " · Diamond <span class='mono'>" + short(DIAMOND) + "…</span>" +
+  " · <a href='https://github.com/Cbfriedl/morcompute-watchdog'>source</a>";
+</script>

@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 H=$(sha256sum assets/pub.js  | cut -c1-12)
 C=$(sha256sum assets/pub.css | cut -c1-12)
-for f in index.html models.html addresses.html provider.html; do
+for f in index.html models.html addresses.html provider.html buyers.html; do
   [ -f "$f" ] || continue
   sed -i -E 's#(from "\./assets/pub\.js)(\?v=[0-9a-f]+)?"#\1?v='"$H"'"#' "$f"
   sed -i -E 's#(href="assets/pub\.css)(\?v=[0-9a-f]+)?"#\1?v='"$C"'"#' "$f"
