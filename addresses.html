@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bids by address — Morpheus census</title>
 <meta name="description" content="Every address holding a live Morpheus bid, with its price spread, stake, headroom and realised earnings.">
-<link rel="stylesheet" href="assets/pub.css?v=9b01a33aaaab">
+<link rel="stylesheet" href="assets/pub.css?v=b03938ea1eec">
 
 <div class="wrap">
   <header>
@@ -88,7 +88,10 @@ const tfLabel = () => K[TF][2];
 let rows = [], shown = [];
 function build(){
   const [sk,mk] = K[TF];
-  rows = Object.entries(PD).filter(([,p])=>!p.deleted).map(([a,p])=>{
+  /* splice, not reassign: sortable() closed over THIS array. Handing it a
+     new one leaves resort() sorting an orphan while the table draws the
+     replacement unsorted. */
+  rows.splice(0, rows.length, ...Object.entries(PD).filter(([,p])=>!p.deleted).map(([a,p])=>{
     const h = HP[a] || {};
     return { a, bids:p.bids, models:p.models, mn:p.mn, md:p.md, mx:p.mx,
              stake:p.stake, head:p.head, pct:p.pct,
@@ -96,7 +99,7 @@ function build(){
              buyers: h.buyers ?? null, self: (h.selfShare||0) >= 99.5,
              top: h.topShare, first: h.first,
              choked: (p.head||0) <= CHOKE };
-  });
+  }));
 }
 
 function filtered(){

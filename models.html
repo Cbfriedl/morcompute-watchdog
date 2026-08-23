@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bids by model — Morpheus census</title>
 <meta name="description" content="Every Morpheus model carrying a live bid, with demand, value paid and the full price spread across its bidders.">
-<link rel="stylesheet" href="assets/pub.css?v=9b01a33aaaab">
+<link rel="stylesheet" href="assets/pub.css?v=b03938ea1eec">
 
 <div class="wrap">
   <header>
@@ -109,11 +109,14 @@ let rows = [], shown = [];
 
 function build(){
   const [sk,mk] = K[TF];
-  rows = (C.models||[]).map(m=>{
+  /* splice, not reassign: sortable() closed over THIS array. Handing it a
+     new one leaves resort() sorting an orphan while the table draws the
+     replacement unsorted. */
+  rows.splice(0, rows.length, ...(C.models||[]).map(m=>{
     const s = m[sk]||0, v = m[mk]||0;
     return {...m, sessions:s, value:v, perSession: s? v/s : null,
             mordiem: m.id===MORDIEM_MODEL};
-  });
+  }));
 }
 
 function filtered(){

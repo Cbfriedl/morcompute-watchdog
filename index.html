@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Morpheus Bid Market Census</title>
 <meta name="description" content="Every active bid on the Morpheus provider market, read from Base mainnet: who bids, who earns, and who actually pays.">
-<link rel="stylesheet" href="assets/pub.css?v=9b01a33aaaab">
+<link rel="stylesheet" href="assets/pub.css?v=b03938ea1eec">
 
 <div class="wrap">
   <header>
@@ -171,6 +171,22 @@ const K = { d1:["s1","mor1","today"], d10:["s10","mor10","trailing "+(C.windowDa
 const sKey = () => K[TF][0], mKey = () => K[TF][1], tfLabel = () => K[TF][2];
 
 /* ---------------- KPI row ---------------- */
+/* Where the selected window actually begins. The 10-day window is measured back
+   from the census's own last counted session, not from now — the census is
+   rebuilt once a day, so anchoring on the clock would claim a window the data
+   does not cover. */
+function periodStart(){
+  if(TF==="d1")
+    return {v: day(C.dayStart), sub: "00:00 UTC"};
+  if(TF==="d10"){
+    const hi = C.sessionsAsOf ? Date.parse(C.sessionsAsOf)/1000 : null;
+    const n  = C.windowDays || 10;
+    return {v: hi? day(hi - n*86400) : "—",
+            sub: n+" days to "+esc((C.sessionsAsOf||"").slice(0,10))};
+  }
+  return {v: H?.firstDay || "—", sub: "first session on record"};
+}
+
 function drawKpis(){
   const MS = C.models||[];
   const sum = k => MS.reduce((a,m)=>a+(m[k]||0),0);
@@ -185,8 +201,10 @@ function drawKpis(){
   const contend = live.filter(([,p])=>(p.head||0) > CHOKE);
   const choked  = live.filter(([,p])=>(p.head||0) <= CHOKE);
 
+  const ps = periodStart();
   document.getElementById("kpis").innerHTML = [
-    kpi("Registered models", int(C.registeredModels), "on chain, network wide","time"),
+    kpi("Period start", ps.v, ps.sub, "time"),
+    kpi("Models", int(C.registeredModels), "on chain, network wide","time"),
     kpi("Models with bids", int(C.modelsWithBids),
         pct(100*(C.modelsWithBids||0)/(C.registeredModels||1),0)+" of the registry","time"),
     kpi("Live bids", int(C.totalBids), "standing offers","time"),
@@ -194,15 +212,11 @@ function drawKpis(){
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
         live.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none","choke"),
-    kpi("Sessions", int(S), tfLabel(),"earn"),
-    kpi("Value paid", mor(V)+" MOR",
-        (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
-    kpi("Value paid excl. MORDIEM", mor(Vx)+" MOR",
-        (V? pct(100*Vx/V,1)+" of gross · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
-    kpi("Median bid price", price(C.p50), "MOR / day","earn"),
-    kpi("Cheapest decile", price(C.p10), "10th percentile","earn"),
-    kpi("At the ceiling", int(C.atCeiling),
-        pct(100*(C.atCeiling||0)/(C.totalBids||1),0)+" of bids at 864 MOR/day","time"),
+    kpi("MOR paid", mor(V),
+        (S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
+    kpi("non-MORDiem Val", mor(Vx),
+        (V? pct(100*Vx/V,1)+" of gross":"—"),"earn"),
+    kpi("Sessions", int(S), tfLabel(),"sess"),
   ].join("");
 
   document.getElementById("tfnote").textContent =
