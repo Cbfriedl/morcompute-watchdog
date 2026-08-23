@@ -151,7 +151,6 @@ function drawKpis(){
     kpi("Value paid excl. MORDIEM", mor(Vx)+" MOR",
         (V? pct(100*Vx/V,1)+" of gross · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
     kpi("Live bids", int(C.totalBids), "across all models","hold"),
-    kpi("Median bid price", price(C.p50), "MOR / day","hold"),
   ].join("");
 }
 
