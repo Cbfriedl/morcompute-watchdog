@@ -38,19 +38,6 @@
   </section>
 
   <section>
-    <h2>Buyers per provider</h2>
-    <div class="tablewrap">
-      <table>
-        <thead><tr>
-          <th>Provider</th><th>MOR earned</th><th>Sessions</th>
-          <th>Distinct buyers</th><th>Top buyer share</th>
-        </tr></thead>
-        <tbody id="buyerbody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
     <h2>Volume and value over time</h2>
     <div class="card">
       <div class="plot" id="plot-hist"></div>
@@ -63,18 +50,18 @@
   </section>
 
   <section>
-    <h2>Distribution of active bid prices</h2>
-    <div class="card">
-      <div class="plot" id="plot-px"></div>
-      <div class="legend">
-        <span class="lg"><span class="sw" style="background:var(--band-low)"></span>Competitive band — under 10 MOR/day</span>
-        <span class="lg"><span class="sw" style="background:var(--band-mid)"></span>Sparse middle</span>
-        <span class="lg"><span class="sw" style="background:var(--band-high)"></span>Ceiling band — 100 MOR/day and up</span>
-      </div>
-      <p class="cap" id="px-cap"></p>
+    <h2>Buyers per provider</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Provider</th><th>MOR earned</th><th>Sessions</th>
+          <th>Distinct buyers</th><th>Top buyer share</th>
+        </tr></thead>
+        <tbody id="buyerbody"></tbody>
+      </table>
     </div>
-    <p id="px-note"></p>
   </section>
+
 
   <section>
     <h2>How a provider actually earns MOR</h2>
@@ -132,17 +119,6 @@
     </p>
   </section>
 
-  <section>
-    <details>
-      <summary>Full binned price distribution (table view)</summary>
-      <div class="tablewrap" style="margin-top:12px">
-        <table>
-          <thead><tr><th>Price range (MOR/day)</th><th>Bids</th><th>Share</th></tr></thead>
-          <tbody id="histbody"></tbody>
-        </table>
-      </div>
-    </details>
-  </section>
 
   <footer id="foot"></footer>
 </div>
@@ -150,7 +126,7 @@
 
 <script type="module">
 import {DIAMOND,MORDIEM_MODEL,CHOKE,fmt,int,pct,mor,price,short,day,
-        nav,kpi,esc,census,wireTip,sortable,hbar,loghist} from "./assets/pub.js?v=df8223ececa9";
+        nav,kpi,esc,census,wireTip,sortable,hbar} from "./assets/pub.js?v=df8223ececa9";
 
 document.getElementById("navslot").innerHTML = nav("index.html");
 const fail = m => { const e=document.getElementById("err");
@@ -311,26 +287,6 @@ async function drawHistory(){
     "MOR on the right (log, because the range spans five decades). Hover any day for detail.";
 }
 
-/* ---------------- price distribution ---------------- */
-function drawPx(){
-  const px = (C.models||[]).flatMap(m=>m.px||[]).filter(v=>v>0);
-  const {svg,bins} = loghist(px);
-  document.getElementById("plot-px").innerHTML = svg;
-  document.getElementById("px-cap").textContent =
-    int(px.length)+" active bids, log-binned. The x-axis covers six orders of "+
-    "magnitude because the protocol's own price range does.";
-  const below10 = px.filter(v=>v<10).length, ceil = px.filter(v=>v>=100).length;
-  document.getElementById("px-note").innerHTML =
-    "The market is <strong>bimodal, not converged</strong>. "+
-    pct(100*below10/px.length,0)+" of bids sit under 10 MOR/day and "+
-    pct(100*ceil/px.length,0)+" sit at 100 MOR/day or above. The valley between "+
-    "them is nearly empty — very few providers price in the middle, which is "+
-    "exactly where an entrant has room to work.";
-  const tot = bins.reduce((a,b)=>a+b.c,0)||1;
-  document.getElementById("histbody").innerHTML = bins.map(b=>
-    `<tr><td class="mono">${price(b.lo)} – ${price(b.hi)}</td>`+
-    `<td class="num">${int(b.c)}</td><td class="num">${pct(100*b.c/tot,1)}</td></tr>`).join("");
-}
 
 /* ---------------- choked + stake table ---------------- */
 function drawProviders(){
@@ -370,7 +326,7 @@ function drawProviders(){
   sortable(document.getElementById("ptable"), rows, draw, "rate", -1);
 }
 
-function redraw(){ drawKpis(); drawEarn(); drawBuyers(); drawPx(); drawProviders(); }
+function redraw(){ drawKpis(); drawEarn(); drawBuyers(); drawProviders(); }
 redraw();
 drawHistory();
 
