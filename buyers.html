@@ -34,7 +34,7 @@
   <div class="toolbar">
     <input type="search" id="q" placeholder="filter address…" aria-label="Filter addresses">
     <label class="chkl"><input type="checkbox" id="activeonly" checked> active in window</label>
-    <label class="chkl"><input type="checkbox" id="hideself"> hide self-dealing</label>
+    <label class="chkl"><input type="checkbox" id="hideself"> hide same-address</label>
     <span class="selcount" id="cnt"></span>
   </div>
 
@@ -146,20 +146,18 @@ function drawKpis() {
   const act = rows.filter(r => r.sessions > 0);
   const S = act.reduce((a, r) => a + r.sessions, 0);
   const V = act.reduce((a, r) => a + r.paid, 0);
-  const H = act.reduce((a, r) => a + r.hours, 0);
   const selfV = act.filter(r => r.self).reduce((a, r) => a + r.paid, 0);
   const top = act.slice().sort((a, b) => b.sessions - a.sessions)[0];
   document.getElementById("kpis").innerHTML = [
-    kpi("Buyers", int(act.length), "opened a session · " + tfLabel(), "time"),
-    kpi("Sessions", int(S), tfLabel(), "earn"),
-    kpi("MOR paid", mor(V) + " MOR", S ? fmt(V / S, 4) + " MOR/session" : "—", "earn"),
-    kpi("Avg bid paid", price(H ? V / (H / 24) : null), "MOR / day, all buyers", "hold"),
+    kpi("Buyers", int(act.length), "opened a session · " + tfLabel(), "hold"),
+    kpi("MOR paid", mor(V), S ? fmt(V / S, 4) + " MOR/session" : "—", "earn"),
+    /* Broken out rather than netted away: it is real on-chain volume, and
+       removing it would make every total on this page wrong. */
+    kpi("Same-address MOR", mor(selfV),
+        V ? pct(100 * selfV / V, 1) + " of MOR paid" : "—", "earn"),
     kpi("Largest buyer", top ? pct(top.share, 1) : "—",
         top ? short(top.a) + " · " + int(top.sessions) + " sessions" : "—", "hold"),
-    /* Self-dealing is broken out rather than netted away: it is real on-chain
-       volume, and removing it would make every total on this page wrong. */
-    kpi("Self-dealing", mor(selfV) + " MOR",
-        V ? pct(100 * selfV / V, 1) + " of MOR paid" : "—", "hold"),
+    kpi("Sessions", int(S), tfLabel(), "sess"),
   ].join("");
   document.getElementById("tfnote").textContent =
     (TF === "d1" && !S) ? "no sessions recorded in today’s window yet" : "";
@@ -171,7 +169,7 @@ function drawDrill() {
   if (!r) { drill.classList.remove("open"); return; }
   const [sk, mk, pk] = K[TF];
   document.getElementById("d-who").innerHTML = esc(r.a) +
-    (r.self ? " <span class='pill cap'>self-dealing" +
+    (r.self ? " <span class='pill cap'>same address" +
       (r.selfN ? " · " + int(r.selfN) : "") + "</span>" : "") +
     (r.a === MORDIEM_ADDR ? " <span class='pill cap'>MORDIEM</span>" : "");
   document.getElementById("d-stats").innerHTML =
@@ -197,7 +195,7 @@ function draw() {
   document.getElementById("tb").innerHTML = shown.map(r =>
     "<tr class='clickable" + (r.a === picked ? " selrow" : "") + "' data-a='" + esc(r.a) + "'>" +
     "<td class='mono'>" + esc(short(r.a)) +
-      (r.self ? " <span class='pill cap'>self</span>" : "") + "</td>" +
+      (r.self ? " <span class='pill cap'>same addr</span>" : "") + "</td>" +
     "<td class='num'>" + int(r.models) + "</td>" +
     "<td class='num'>" + int(r.sessions) + "</td>" +
     "<td class='num'>" + fmt(r.hours, 1) + "</td>" +

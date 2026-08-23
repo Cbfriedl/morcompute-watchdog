@@ -112,10 +112,14 @@ function filtered(){
 
 function drawKpis(){
   const contend = rows.filter(r=>!r.choked), choked = rows.filter(r=>r.choked);
-  const arm = rows.filter(r=>!r.self);
-  const val = arm.reduce((a,r)=>a+(r.val||0),0);
-  const sess = arm.reduce((a,r)=>a+(r.sess||0),0);
-  const earning = arm.filter(r=>(r.val||0)>0).length;
+  /* Every address, not an arm's-length subset: this page shares its labels with
+     Buyers and Market overview, and a filtered total under a shared label read
+     726.1 against their 7,400.6. The same-address share is broken out below
+     instead of being dropped. */
+  const val  = rows.reduce((a,r)=>a+(r.val||0),0);
+  const sess = rows.reduce((a,r)=>a+(r.sess||0),0);
+  const selfVal = rows.filter(r=>r.self).reduce((a,r)=>a+(r.val||0),0);
+  const earning = rows.filter(r=>(r.val||0)>0).length;
   document.getElementById("kpis").innerHTML = [
     kpi("Providers", int(rows.length), "hold at least one bid","hold"),
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
@@ -126,12 +130,16 @@ function drawKpis(){
     /* the two money cards are the Market overview cards verbatim */
     kpi("MOR paid", mor(val),
         (sess? fmt(val/sess,4)+" MOR/session":"—"),"earn"),
+    kpi("Same-address MOR", mor(selfVal),
+        (val? pct(100*selfVal/val,1)+" of MOR paid":"—"),"earn"),
     kpi("Sessions", int(sess), tfLabel(),"sess"),
     /* unit moves into the title, matching how MOR paid drops its suffix */
-    kpi("MOR staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0)),
+    kpi("Total MOR staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0)),
         "by addresses with live bids","hold"),
-    kpi("MOR contending", mor(contend.reduce((a,r)=>a+(r.stake||0),0)),
-        "can still earn","hold"),
+    /* headroom is stake - limitPeriodEarned, not the stake of contending
+       addresses; summing `head` is what makes the label true */
+    kpi("Total Headroom", mor(rows.reduce((a,r)=>a+(r.head||0),0)),
+        "still earnable before a re-stake","hold"),
   ].join("");
   document.getElementById("tfnote").textContent =
     int(sess)+" sessions · "+mor(val)+" MOR";
