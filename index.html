@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Morpheus Bid Market Census</title>
 <meta name="description" content="Every active bid on the Morpheus provider market, read from Base mainnet: who bids, who earns, and who actually pays.">
-<link rel="stylesheet" href="assets/pub.css?v=b03938ea1eec">
+<link rel="stylesheet" href="assets/pub.css?v=fe5f9952cd1b">
 
 <div class="wrap">
   <header>
@@ -208,7 +208,7 @@ function drawKpis(){
     kpi("Models with bids", int(C.modelsWithBids),
         pct(100*(C.modelsWithBids||0)/(C.registeredModels||1),0)+" of the registry","time"),
     kpi("Live bids", int(C.totalBids), "standing offers","time"),
-    kpi("Bidding addresses", int(C.biddingAddresses), "hold at least one bid","hold"),
+    kpi("Bid addresses", int(C.biddingAddresses), "hold at least one bid","hold"),
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
         live.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none","choke"),
