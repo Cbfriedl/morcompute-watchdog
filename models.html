@@ -138,19 +138,21 @@ function drawKpis(){
      is broken out rather than netted away. */
   const sum  = k => rows.reduce((a,r)=>a+(r[k]||0),0);
   const sumX = k => rows.reduce((a,r)=>a+(r.mordiem?0:(r[k]||0)),0);
-  const S = sum("sessions"), V = sum("value"), Vx = sumX("value"), Sx = sumX("sessions");
+  const S = sum("sessions"), V = sum("value"), Vx = sumX("value");
   const withD = rows.filter(r=>r.sessions>0).length;
-  const days = TF==="d1"?1:TF==="d10"?(C.windowDays||10):null;
   document.getElementById("kpis").innerHTML = [
     kpi("Models with bids", int(rows.length), "of "+int(C.registeredModels)+" registered","time"),
+    /* Saw demand counts models, so it carries the models colour, not an
+       earnings one. Colour says what the card is about. */
     kpi("Saw demand", int(withD),
-        rows.length? pct(100*withD/rows.length,1)+" took a session · "+tfLabel():"—","earn"),
-    kpi("Sessions", int(S), tfLabel(),"earn"),
-    kpi("Value paid", mor(V)+" MOR",
-        (days? fmt(V/days,1)+" MOR/day · ":"")+(S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
-    kpi("Value paid excl. MORDIEM", mor(Vx)+" MOR",
-        (V? pct(100*Vx/V,1)+" of gross · ":"")+(Sx? fmt(Vx/Sx,4)+" MOR/session":"—"),"earn"),
-    kpi("Live bids", int(C.totalBids), "across all models","hold"),
+        rows.length? pct(100*withD/rows.length,1)+" took a session · "+tfLabel():"—","time"),
+    kpi("Sessions", int(S), tfLabel(),"sess"),
+    /* Identical to the Market overview cards, deliberately: same figure, same
+       label, same sub-line, so the two pages do not disagree. */
+    kpi("MOR paid", mor(V),
+        (S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
+    kpi("non-MORDiem Val", mor(Vx),
+        (V? pct(100*Vx/V,1)+" of gross":"—"),"earn"),
   ].join("");
 }
 
