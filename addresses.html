@@ -117,18 +117,21 @@ function drawKpis(){
   const sess = arm.reduce((a,r)=>a+(r.sess||0),0);
   const earning = arm.filter(r=>(r.val||0)>0).length;
   document.getElementById("kpis").innerHTML = [
-    kpi("Bidding addresses", int(rows.length), "hold at least one live bid","hold"),
+    kpi("Providers", int(rows.length), "hold at least one bid","hold"),
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
         rows.length? pct(100*choked.length/rows.length,0)+" cannot be paid":"none","choke"),
-    kpi("Earned anything", int(earning),
-        "in "+tfLabel(),"earn"),
-    kpi("Sessions", int(sess), tfLabel(),"earn"),
-    kpi("Value paid", mor(val)+" MOR", tfLabel(),"earn"),
-    kpi("Total staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
+    /* counts addresses, so it takes the address colour, not an earnings one */
+    kpi("Earned anything", int(earning), "in "+tfLabel(),"hold"),
+    /* the two money cards are the Market overview cards verbatim */
+    kpi("MOR paid", mor(val),
+        (sess? fmt(val/sess,4)+" MOR/session":"—"),"earn"),
+    kpi("Sessions", int(sess), tfLabel(),"sess"),
+    /* unit moves into the title, matching how MOR paid drops its suffix */
+    kpi("MOR staked", mor(rows.reduce((a,r)=>a+(r.stake||0),0)),
         "by addresses with live bids","hold"),
-    kpi("Staked and contending", mor(contend.reduce((a,r)=>a+(r.stake||0),0))+" MOR",
-        "MOR that can still earn","hold"),
+    kpi("MOR contending", mor(contend.reduce((a,r)=>a+(r.stake||0),0)),
+        "can still earn","hold"),
   ].join("");
   document.getElementById("tfnote").textContent =
     int(sess)+" sessions · "+mor(val)+" MOR";
