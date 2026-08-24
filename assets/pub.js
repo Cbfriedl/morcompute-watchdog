@@ -43,6 +43,7 @@ const PAGES = [
   ["index.html",     "Market overview"],
   ["models.html",    "Bids by model"],
   ["addresses.html", "Bids by address"],
+  ["compare.html",   "Compare"],
   ["buyers.html",    "Buyers"],
   ["provider.html",  "Provider lookup"],
 ];

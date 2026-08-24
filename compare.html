@@ -1,0 +1,329 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compare providers — Morpheus census</title>
+<meta name="description" content="Pick any two Morpheus providers and compare them side by side: stake, headroom, earnings and every model either of them bids.">
+<link rel="stylesheet" href="assets/pub.css?v=51883ac8552c">
+<style>
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .side{background:var(--bg);border:1px solid var(--rule);border-radius:12px;padding:12px 13px}
+  .side>h3{font-size:12px;font-weight:700;margin:0 0 9px;display:flex;
+    justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .side>h3 .who{font-family:var(--mono,ui-monospace,monospace);font-size:11px;
+    color:var(--ink-3);font-weight:400;overflow-wrap:anywhere}
+  .side .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin:0}
+  @media (max-width:860px){ .cmp{grid-template-columns:1fr} }
+  #cmpt th.split, #cmpt td.split{border-left:2px solid var(--rule-2)}
+  #cmpt th.grp{text-align:center;font-size:9.5px;letter-spacing:.1em}
+  #pickbox thead th{background:var(--c-hold-bg,#e9eff7)}
+  .pickhead{background:var(--c-hold-bg,#e9eff7);border:1px solid var(--rule);
+    border-radius:10px;padding:10px 13px;margin:16px 0 0;
+    display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .pickhead h2{margin:0;font-size:15px}
+  .pickhead .note{font-size:11.5px;color:var(--ink-3)}
+  td.pick{width:34px;text-align:center}
+  tr.sel td{background:var(--accent-soft,rgba(120,160,220,.12));font-weight:650}
+  .mut{color:var(--ink-3)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Base mainnet · full chain census</div>
+    <h1>Compare providers</h1>
+    <p class="standfirst">
+      Tick any two addresses to put them side by side: what they staked, what
+      they have left to earn, and every model either of them bids — with the
+      network's demand for that model beside it. Nobody's node is privileged
+      here; both sides are read the same way.
+    </p>
+  </header>
+
+  <div id="navslot"></div>
+  <div class="warnbox" id="err" style="display:none"></div>
+
+  <div class="tfbar">
+    <span class="lbl">Timeframe</span>
+    <label class="chkl"><input type="radio" name="tf" value="d1"> today</label>
+    <label class="chkl"><input type="radio" name="tf" value="d10" checked> trailing 10 days</label>
+    <label class="chkl"><input type="radio" name="tf" value="all"> all time</label>
+    <span class="selcount" id="tfnote"></span>
+  </div>
+
+  <div class="pickhead">
+    <h2>Select two addresses to compare</h2>
+    <span class="note" id="pnote">hover a column heading for what it means</span>
+  </div>
+
+  <div class="toolbar" id="ptools" style="margin:10px 0">
+    <input type="search" id="q" placeholder="filter address…" aria-label="Filter addresses">
+    <label class="chkl"><input type="radio" name="av" value="all" checked> all</label>
+    <label class="chkl"><input type="radio" name="av" value="avail"> available</label>
+    <label class="chkl"><input type="radio" name="av" value="choked"> choked</label>
+    <span class="selcount" id="cnt"></span>
+  </div>
+  <div class="toolbar" id="popen" style="display:none;margin:10px 0">
+    <button id="openlist" type="button">Open list</button>
+    <button id="clearsel" type="button">Clear</button>
+    <span class="selcount" id="opencnt"></span>
+  </div>
+
+  <div class="tablewrap" id="pickbox">
+    <table class="sortable" id="t">
+      <thead><tr>
+        <th></th>
+        <th data-k="a" data-tip="Provider wallet address on Base. Tick two to compare them.">Address<span class="ar">▲</span></th>
+        <th data-k="shared" data-tip="How many models this provider bids that the other ticked provider also bids. Needs two selections.">Overlap<span class="ar">▲</span></th>
+        <th data-k="mor" data-tip="MOR this provider earned in the selected timeframe, gross, across every model. From the daily history build, not live chain.">Earned †<span class="ar">▲</span></th>
+        <th data-k="sess" data-tip="Sessions this provider captured in the selected timeframe, across every model. From the daily history build, not live chain.">Captured †<span class="ar">▲</span></th>
+        <th data-k="models" data-tip="Distinct models they hold at least one live bid on. Every provider posts one bid per model, so a separate bid count would repeat this.">Models<span class="ar">▲</span></th>
+        <th data-k="stake" data-tip="MOR staked with the diamond right now. Stake caps what a provider can earn in a period.">Staked<span class="ar">▲</span></th>
+        <th data-k="head" data-tip="Stake minus what they have already earned this period — MOR they can still be paid. At or below 0.5 MOR they cannot be paid at all.">Headroom<span class="ar">▲</span></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8">loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="cmpwrap" style="display:none">
+    <div class="cmp" id="cmpcards"></div>
+    <div class="pickhead" style="background:transparent;border:none;padding:0;margin:18px 0 8px">
+      <h2 id="ctitle">Models either of them bids</h2>
+      <span class="note" id="cnote"></span>
+    </div>
+    <div class="toolbar" style="margin-bottom:10px">
+      <label class="chkl"><input type="radio" name="ov" value="all" checked> all</label>
+      <label class="chkl"><input type="radio" name="ov" value="both"> overlapping</label>
+      <label class="chkl"><input type="radio" name="ov" value="only"> non-overlapping</label>
+      <span class="selcount" id="ovcnt"></span>
+    </div>
+    <div class="tablewrap">
+      <table class="sortable" id="cmpt">
+        <thead>
+          <tr><th colspan="2"></th>
+              <th class="grp split" colspan="3" id="ha">A</th>
+              <th class="grp split" colspan="3" id="hb">B</th></tr>
+          <tr>
+            <th data-k="name">Model<span class="ar">▲</span></th>
+            <th data-k="demand" data-tip="Sessions the whole network served on this model in the selected timeframe, every provider included — the size of the prize, not what either of these two took.">Demand †<span class="ar">▲</span></th>
+            <th data-k="aPrice" class="split" data-tip="Their live bid on this model, MOR per day.">Bid<span class="ar">▲</span></th>
+            <th data-k="aSess" data-tip="Sessions they captured on this model in the timeframe.">Captured †<span class="ar">▲</span></th>
+            <th data-k="aMor" data-tip="MOR they earned on this model in the timeframe.">Earned †<span class="ar">▲</span></th>
+            <th data-k="bPrice" class="split" data-tip="Their live bid on this model, MOR per day.">Bid<span class="ar">▲</span></th>
+            <th data-k="bSess" data-tip="Sessions they captured on this model in the timeframe.">Captured †<span class="ar">▲</span></th>
+            <th data-k="bMor" data-tip="MOR they earned on this model in the timeframe.">Earned †<span class="ar">▲</span></th>
+          </tr>
+        </thead><tbody id="cmptb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer class="foot">
+    Built from the public chain census. † sessions, MOR and demand come from the
+    daily history build and end at the timestamp shown, not at this moment;
+    stake, headroom, bids and prices are from the census read of live chain state.
+    Reputation scores are not published by the network, so no rank is shown here.
+  </footer>
+</div>
+
+<script type="module">
+import {CHOKE,fmt,int,mor,price,pct,short,day,nav,kpi,census,sortable,wireTip,esc}
+  from "./assets/pub.js?v=d764749421a2";
+document.getElementById("navslot").innerHTML = nav("compare.html");
+wireTip(document.body);
+
+let C=null, PF=null, TF="d10", SEL=[], LISTOPEN=true, PROWS=[], PSORT=null, CROWS=[], CSORT=null;
+
+try{ C  = await census(); }catch(e){}
+try{ PF = await (await fetch("providers-models.json?cb="+Date.now())).json(); }catch(e){}
+if(!C){ const e=document.getElementById("err");
+        e.style.display="block"; e.textContent="census-full.json not available"; }
+else {
+
+const win = () => PF?.windows?.[TF] ?? null;
+const asOf = () => PF?.asOfTime ?? null;
+const utcHM = t => new Date(t*1000).toISOString().slice(11,16)+" UTC";
+const utcDate = t => new Date(t*1000).toISOString().slice(5,10);
+/* The history build runs daily, so between midnight and that run the "today"
+   window has no rows at all. Showing zeros there would read as "nobody sold
+   anything today"; the page says the window is empty instead. */
+const staleToday = () => TF==="d1" && (asOf() ?? 0) < Math.floor(Date.now()/1000/86400)*86400;
+function span(){
+  const a=asOf(); if(a==null) return "history feed unavailable";
+  if(TF==="d1")  return staleToday()
+      ? "no rows for today yet — history last built "+utcDate(a)+" "+utcHM(a)
+      : "today, to "+utcHM(a);
+  if(TF==="d10") return (PF?.windowDays??10)+" days to "+utcDate(a)+" "+utcHM(a);
+  return "all time to "+utcDate(a)+" "+utcHM(a);
+}
+
+const pdet = Object.entries(C.pdetail).map(([a,p])=>({a,...p})).filter(p=>!p.deleted);
+const modelsById = new Map((C.models||[]).map(m=>[m.id,m]));
+/* which models an address bids, from the census bid book: pv is every bidder
+   on that model with their price */
+const bidsOf = addr => {
+  const out=new Map(); const a=addr.toLowerCase();
+  (C.models||[]).forEach(m=>{
+    const hit=(m.pv||[]).find(x=>String(x[0]).toLowerCase()===a);
+    if(hit) out.set(m.id, hit[1]);
+  });
+  return out;
+};
+const bidCache=new Map();
+const bids = a => { const k=a.toLowerCase();
+  if(!bidCache.has(k)) bidCache.set(k,bidsOf(k)); return bidCache.get(k); };
+const provWin = a => { const p=win()?.providers?.[a.toLowerCase()];
+  return {sess:p?.n ?? null, mor:p?.mor ?? null}; };
+const demandOf = m => !m ? null
+  : (TF==="d1" ? (m.s1??0) : TF==="d10" ? (m.s10??0) : (m.sAll??0));
+
+/* ---------- picker ---------- */
+function drawPicker(){
+  const q=(document.getElementById("q").value||"").toLowerCase().trim();
+  const av=document.querySelector('input[name=av]:checked')?.value || "all";
+  const collapsed = SEL.length===2 && !LISTOPEN;
+  const other = a => SEL.length===2 ? SEL.find(x=>x!==a) : null;
+  const rows = pdet
+    .filter(p=> av==="all" ? true
+              : av==="choked" ? (p.head||0)<=CHOKE : (p.head||0)>CHOKE)
+    .filter(p=> !q || p.a.toLowerCase().includes(q))
+    .filter(p=> !collapsed || SEL.includes(p.a))
+    .map(p=>{
+      const w=provWin(p.a);
+      let shared=null;
+      if(SEL.length===2 && SEL.includes(p.a)){
+        const mine=bids(p.a), th=bids(other(p.a));
+        shared=[...mine.keys()].filter(k=>th.has(k)).length;
+      }
+      return {a:p.a, shared,
+              mor: staleToday()? null : w.mor, sess: staleToday()? null : w.sess,
+              models:p.models||0, stake:p.stake||0, head:p.head||0,
+              choked:(p.head||0)<=CHOKE};
+    });
+
+  PROWS.splice(0,PROWS.length,...rows);
+  const tb=document.getElementById("tb");
+  const draw=()=>{ tb.innerHTML = PROWS.map(r=>`
+    <tr class="${SEL.includes(r.a)?"sel ":""}${r.choked?"choked":""}">
+      <td class="pick"><input type="checkbox" data-a="${esc(r.a)}"
+        ${SEL.includes(r.a)?"checked":""}
+        ${(SEL.length>=2 && !SEL.includes(r.a))?"disabled":""}></td>
+      <td class="num">${short(r.a)}${r.choked?' <span class="mut">· choked</span>':""}</td>
+      <td class="num">${r.shared!=null? int(r.shared):"—"}</td>
+      <td class="num">${r.mor!=null? fmt(r.mor,2):"—"}</td>
+      <td class="num">${r.sess!=null? int(r.sess):"—"}</td>
+      <td class="num">${r.models||"—"}</td>
+      <td class="num">${mor(r.stake)}</td>
+      <td class="num">${mor(r.head)}</td></tr>`).join(""); };
+  if(!PSORT) PSORT=sortable(document.getElementById("t"), PROWS, draw, "sess", -1);
+  else PSORT.resort();
+
+  document.getElementById("ptools").style.display = collapsed ? "none" : "";
+  document.getElementById("popen").style.display  = collapsed ? "" : "none";
+  document.getElementById("cnt").textContent =
+    `${rows.length} shown of ${pdet.length} · ${SEL.length} of 2 selected`;
+  document.getElementById("opencnt").textContent =
+    `comparing 2 of ${pdet.length} addresses — open the list to change one`;
+  document.getElementById("pnote").textContent =
+    (collapsed? "list collapsed so the comparison stays in view · " : "")
+    + `hover a column heading for what it means · † ${span()}`;
+}
+
+/* ---------- comparison ---------- */
+function drawCompare(){
+  const wrap=document.getElementById("cmpwrap");
+  if(SEL.length!==2){ wrap.style.display="none"; return; }
+  wrap.style.display="";
+  const [A,B]=SEL, w=win();
+  const bmA=w?.byModel?.[A.toLowerCase()]||{}, bmB=w?.byModel?.[B.toLowerCase()]||{};
+  const pa=bids(A), pb=bids(B);
+  const nameOf = mid => modelsById.get(mid)?.n || PF?.modelNames?.[mid] || mid.slice(0,10)+"…";
+
+  const rows=[];
+  new Set([...pa.keys(),...pb.keys()]).forEach(mid=>{
+    const inA=pa.has(mid), inB=pb.has(mid);
+    const a=bmA[mid]||{}, b=bmB[mid]||{};
+    rows.push({model:mid, name:nameOf(mid),
+      kind: inA&&inB ? "both" : (inA?"a":"b"),
+      demand: staleToday()? null : demandOf(modelsById.get(mid)),
+      aPrice: inA? pa.get(mid):null,
+      aSess: staleToday()? null : (a.n ?? 0), aMor: staleToday()? null : (a.mor ?? 0),
+      bPrice: inB? pb.get(mid):null,
+      bSess: staleToday()? null : (b.n ?? 0), bMor: staleToday()? null : (b.mor ?? 0)});
+  });
+  const nBoth=rows.filter(r=>r.kind==="both").length;
+  const nA=rows.filter(r=>r.kind==="a").length, nB=rows.filter(r=>r.kind==="b").length;
+  const ov=document.querySelector('input[name=ov]:checked')?.value || "all";
+  const shown=rows.filter(r=> ov==="all"?true : ov==="both"? r.kind==="both" : r.kind!=="both");
+
+  CROWS.splice(0,CROWS.length,...shown);
+  const tb=document.getElementById("cmptb");
+  const draw=()=>{ tb.innerHTML = CROWS.map(r=>`<tr>
+      <td>${esc(r.name)}${r.kind==="both"?"":
+        ` <span class="mut">· only ${r.kind==="a"?"A":"B"}</span>`}</td>
+      <td class="num">${r.demand? int(r.demand):"—"}</td>
+      <td class="num split">${r.aPrice!=null? price(r.aPrice):"—"}</td>
+      <td class="num">${r.aSess!=null? int(r.aSess):"—"}</td>
+      <td class="num">${r.aMor!=null? fmt(r.aMor,4):"—"}</td>
+      <td class="num split">${r.bPrice!=null? price(r.bPrice):"—"}</td>
+      <td class="num">${r.bSess!=null? int(r.bSess):"—"}</td>
+      <td class="num">${r.bMor!=null? fmt(r.bMor,4):"—"}</td></tr>`).join(""); };
+  if(!CSORT) CSORT=sortable(document.getElementById("cmpt"), CROWS, draw, "demand", -1);
+  else CSORT.resort();
+
+  document.getElementById("ha").textContent = "A · "+short(A);
+  document.getElementById("hb").textContent = "B · "+short(B);
+  document.getElementById("ctitle").textContent =
+    ov==="both" ? "Models they both bid"
+    : ov==="only" ? "Models only one of them bids" : "Models either of them bids";
+  document.getElementById("ovcnt").textContent =
+    `${shown.length} of ${rows.length} · ${nBoth} overlapping, ${nA} only A, ${nB} only B`;
+  document.getElementById("cnote").textContent = `† ${span()}`;
+
+  const side=(tag,addr)=>{
+    const d=pdet.find(p=>p.a===addr)||{};
+    const s=staleToday()? null : provWin(addr).sess;
+    const v=staleToday()? null : provWin(addr).mor;
+    return `<div class="side"><h3><span>${tag}</span><span class="who">${esc(addr)}</span></h3>
+      <div class="kpis">${[
+        kpi("Start date", d.createdAt? day(d.createdAt):"—",
+            d.createdAt? Math.round((Date.now()/1000-d.createdAt)/86400)+" days ago":"—","time"),
+        kpi("Models", int(d.models||0), "distinct models bid","time"),
+        kpi("Active bids", int(d.bids||0), "listings on offer","time"),
+        kpi("MOR staked", mor(d.stake||0), "staked now","hold"),
+        kpi("Headroom", mor(d.head||0),
+            (d.head||0)<=CHOKE? "CHOKED — cannot be paid":"MOR still earnable",
+            (d.head||0)<=CHOKE? "choke":"hold"),
+        kpi("MOR earned", v==null?"—":fmt(v,2), span(),"earn"),
+        kpi("MOR / session", s? fmt(v/s,4):"—", "over the window","earn"),
+        kpi("Sessions", s==null?"—":int(s), span(),"sess"),
+      ].join("")}</div></div>`;
+  };
+  document.getElementById("cmpcards").innerHTML = side("A",A)+side("B",B);
+}
+
+function drawAll(){ drawPicker(); drawCompare();
+  document.getElementById("tfnote").textContent = span(); }
+
+document.getElementById("tb").addEventListener("change", ev=>{
+  const cb=ev.target.closest('input[type=checkbox][data-a]'); if(!cb) return;
+  const a=cb.dataset.a;
+  if(cb.checked){ if(SEL.length<2 && !SEL.includes(a)) SEL.push(a); }
+  else SEL=SEL.filter(x=>x!==a);
+  LISTOPEN = SEL.length!==2;      // the second tick collapses the list
+  drawAll();
+  if(SEL.length===2) document.getElementById("cmpwrap")
+      .scrollIntoView({behavior:"smooth",block:"nearest"});
+});
+document.getElementById("openlist").addEventListener("click", ()=>{
+  LISTOPEN=true; drawPicker();
+  document.getElementById("t").scrollIntoView({behavior:"smooth",block:"nearest"}); });
+document.getElementById("clearsel").addEventListener("click", ()=>{
+  SEL=[]; LISTOPEN=true; drawAll(); });
+document.getElementById("q").addEventListener("input", drawPicker);
+document.querySelectorAll('input[name=av]').forEach(e=>e.addEventListener("change",drawPicker));
+document.querySelectorAll('input[name=ov]').forEach(e=>e.addEventListener("change",drawCompare));
+document.querySelectorAll('input[name=tf]').forEach(e=>
+  e.addEventListener("change",()=>{ TF=e.value; drawAll(); }));
+
+drawAll();
+}
+</script>
