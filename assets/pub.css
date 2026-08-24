@@ -145,6 +145,11 @@ svg { display: block; width: 100%; height: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 620px; }
 th, td { padding: 9px 13px; text-align: right; border-bottom: 1px solid var(--rule-2); }
 th:first-child, td:first-child { text-align: left; }
+/* Where a checkbox column leads, the name lands in the SECOND cell and the
+   rule above never reaches it, so it fell through to the default right
+   alignment — the model name on Bids by model was right-justified against
+   its own column of numbers. */
+th.chk + th, td.chk + td { text-align: left; }
 thead th { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
   color: var(--ink-3); font-weight: 650; background: var(--rule-2);
   position: sticky; top: 0; z-index: 1; }
