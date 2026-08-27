@@ -154,6 +154,38 @@ names exactly which providers are short and by how much.
 
 ---
 
+## Publishing reads the wrong copy — open defect
+
+There are **two** `history.db` files and the publish path uses the stale one.
+
+| Path | Updated by | State on 2026-08-27 |
+|---|---|---|
+| `/root/morpheus/census/history.db` | `refresh_history.py`, daily 05:18 | current — 324,483 sessions |
+| `/root/morpheus/census/repo/history.db` | hand-commit only | **frozen 2026-08-18**, 318,866 |
+
+`publish.sh` sets `HDB="$REPO/history.db"` and regenerates `providers-history.json`
+and `providers-models.json` from it. So every morning the job faithfully rebuilds
+those aggregates from a database frozen in August, produces byte-identical output,
+and `git diff --staged --quiet` sees no change. **It is not failing — it is
+recomputing the same stale answer**, and exits 0 with "census unchanged", which is
+indistinguishable from a genuinely quiet day. `providers-history.json` last moved
+2026-08-19.
+
+The one-line fix is to point `HDB` at the live database. Publishing `history.db`
+itself is a separate decision: it is committed binary at ~324k rows, so a daily
+commit grows repo history quickly, and no page reads the binary — pages read the
+derived JSON. Weekly, or dropping it from the repo entirely, are both defensible.
+
+## `providers-models.json`
+
+Per-window, per-provider **and per-provider-x-model** sessions, MOR and hours, for
+the public Compare page. Three windows (`d1`, `d10`, `all`); 532 distinct
+(provider, model) pairs exist all-time, so the whole file is ~85 KB. Written by
+`research/foundation/gen_provider_models.py`. Contains no operator identity.
+
+`census-full.json` cannot answer this: it carries only `s10` and `sAll` per
+provider and nothing at all per provider-x-model, so "today" is impossible from it.
+
 ## `history-daily.json`
 
 A tiny companion file for first paint, so the page can draw something before the

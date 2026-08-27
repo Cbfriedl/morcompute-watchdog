@@ -56,6 +56,24 @@ endpoints for the same reason.
 
 ## 2. GitHub — the public census
 
+Six pages: `index.html`, `models.html`, `addresses.html`, **`compare.html`**,
+`buyers.html`, `provider.html`. The Compare page (2026-08-24) lets a visitor tick
+**any two** providers and compare them side by side — it is the public twin of
+the private Compare tab, with two differences that follow from the identity rule:
+neither side is privileged (there is no "my node"), and **no rank or reputation
+is shown at all**. Reputation comes from the router's rated book on localhost,
+which is both unreachable publicly and would identify this operator by revealing
+which models are scored. Measured: one rated call takes ~3.1 s, so covering all
+435 models would be a 22-minute daily job on the box that also serves inference.
+
+`providers-models.json` is generated from `history.db` by
+`research/foundation/gen_provider_models.py`, called from `publish.sh` alongside
+`gen_provider_history.py`. It names no operator: every address in it is a bidder
+on a public chain, exactly as `census-full.json` already lists them.
+
+**A new page must be added to `stamp.sh`'s page list**, or it silently keeps
+serving a stale `pub.js` specifier.
+
 Repo `Cbfriedl/morcompute-watchdog`, served by Pages at
 `cbfriedl.github.io/morcompute-watchdog`.
 
@@ -87,8 +105,36 @@ Two workflows were retired on 2026-08-20:
 
 ## 3. Private — the tailnet dashboard
 
-Tabs: My node, Compare, Trends, Market, Models, Providers. Gitignored and never
-published: `private/`, `margin.json`, `reputation.json`, `snapshots.jsonl`.
+Tabs: **My node, Buyers, Compare, Market, Models** (2026-08-24). Gitignored and
+never published: `private/`, `margin.json`, `reputation.json`, `model-margin.json`,
+`buyers-full.json`, `providers-full.json`, `snapshots.jsonl`.
+
+Two tabs were retired on 2026-08-24. **Trends** was removed outright. **Providers**
+was merged *into* Compare: the provider list is now the picker that drives the
+comparison, so two tabs showing the same table with different affordances became
+one. `trends.html` and `providers.html` still resolve — they are redirect stubs,
+because both were in the operator's bookmark bar and a 404 is not a migration.
+
+### Private feeds
+
+| File | Written by | Cadence | Feeds |
+|---|---|---|---|
+| `reputation.json` | `reputation.py` | 15 min | rank + the **full rated bid book** per model |
+| `margin.json` | `margin.py` | 15 min | account spend, MOR/USD, **OpenRouter credit balance** |
+| `model-margin.json` | `model_margin.py` | 15 min | per-model cost, margin, break-even |
+| `buyers-full.json` | `buyers_feed.py` | 15 min | per-buyer x per-model, three windows |
+| `providers-full.json` | `providers_feed.py` | 15 min | per-provider x per-model, three windows |
+| `census-full.json` | `gen_census.py` | daily 05:18 | copied in by `private-refresh.sh` |
+
+`reputation.py` keeps the whole rated book per model, not just our row and the
+leader. The Compare tab needs any rival's rank and score on a shared model, and
+the shared set is always a subset of the models we bid — so the data was already
+being fetched and thrown away. Costs no extra API calls.
+
+`buyers_feed.py` and `providers_feed.py` both read `history.db` directly rather
+than `census-full.json`, which carries only aggregate counts with no per-model
+breakdown and no per-window split. Both must run **after** `reputation.py`:
+`providers_feed.py` reads `reputation.json` for the model list.
 
 ### Tailscale
 

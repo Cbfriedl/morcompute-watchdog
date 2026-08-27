@@ -47,6 +47,41 @@ itself; it does not need the background as well.
 `choke` is reserved for genuine fault states — a condition that requires action,
 not a number that happens to be negative.
 
+## Table cells are not cards
+
+The colour rule governs **cards**. Two table markers were added on 2026-08-24 and
+neither is a value judgement:
+
+* **`--live-ink`** — a model with a session running *right now* shows its name in
+  bright green with a filled dot on the My node table. `#08a13a` light,
+  `#48e070` dark, defined in all three theme blocks. Deliberately brighter than
+  `--good`, which is a muted status tint and does not read at a glance in a dense
+  table. The marker ignores the timeframe radio: "open right now" is a fact about
+  now, not about the window, and a model whose only session started before the
+  window still gets a row so the marker cannot silently go missing.
+* **Margin basis markers** — `m` = measured on hours that model ran alone,
+  `m!` = measured but the regression disagrees, `≥` = bound only, plain = fitted.
+  These say *how well we know the number*, not whether it is good.
+
+## Card order on a comparison
+
+The Compare tab shows the same eight cards per side, in the same order, so the eye
+can compare position for position: **time, models, wallet, earnings, sessions** —
+Start date, Models, Active bids, MOR staked, Headroom, MOR earned, MOR/session,
+Sessions. Three to a row.
+
+Median bid was removed from that set on 2026-08-24: a median across the unrelated
+models one provider happens to bid is not a statistic. Same objection that removed
+the cross-model price aggregates from the public pages on 2026-08-23.
+
+## Sizing is part of the system
+
+Card padding, radius and type sizes come from the My node page and must not be
+overridden per page. A Compare panel that set its own padding and a smaller value
+font read as a different card system even though every colour was correct — and
+panels sitting on `--surface` instead of `--bg` changed how every category tint
+appeared. If a layout needs three-to-a-row, change the grid template only.
+
 ## Rule of thumb
 
 Before assigning a category, ask *what is this card about*, not *is this number

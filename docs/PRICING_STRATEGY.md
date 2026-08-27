@@ -170,6 +170,90 @@ anthropic/claude-opus-4.7         $20.00
 anthropic/claude-opus-4.7-fast   $120.00      ← same model, six times the price
 ```
 
+### How cost is actually attributed — measured, fitted, or not at all
+
+OpenRouter reports **account-level spend only**. `/api/v1/activity` returns 403
+("only management keys can fetch activity"), so per-model cost has to be inferred.
+`model_margin.py` produces one of three kinds of answer, and the distinction
+matters more than the number:
+
+| Kind | How | Trust |
+|---|---|---|
+| **measured** | hours in which that model ran **alone**: the spend in those hours *is* its cost, no attribution | highest |
+| **fitted** | non-negative least squares of hourly spend against per-model session-hours | moderate |
+| **bound** | the bootstrap band touches zero, so only the band's upper end is reported as `≥` | says little |
+
+A measured row still overstates cost slightly — any non-session traffic in a solo
+hour is counted too — so it is conservative in the safe direction.
+
+**Measurement beats fitting, but does not silently replace it.** Solo hours are
+not a random sample of hours: an hour in which only one model ran may well be an
+hour that model was being hammered. Every row therefore keeps `fittedMarginPct`
+alongside and sets `measuredVsFitted` to `DISAGREE` when the two diverge by more
+than 25 points. On 2026-08-27 deepseek-v4-flash read **−478% measured against
+−132% fitted**, with a per-hour cost range of $0.024–$0.496 — a 20x spread. It is
+unambiguously loss-making either way; *how* loss-making is not settled.
+
+**Measured rates are not stable early.** Gemma-4-31b went +81% → +73.7% → +39.5%
+→ −32.9% over three days as solo hours accumulated from 5.9 to 21.5. Treat a
+single-day measured margin as provisional.
+
+### Token intensity does not transfer between models
+
+The tempting shortcut — measure tokens per session-hour on a model you have sold,
+then apply that rate to a published price to predict a model you have **not** sold
+— was tested on 2026-08-27 and **fails**:
+
+| Model | Cost $/sess-hr | $/M completion | Implied tokens/hr |
+|---|---|---|---|
+| deepseek-v4-flash | 0.20146 | 0.159 | **1,266,725** |
+| gpt-oss-120b | 0.03995 | 0.170 | 235,000 |
+| Kimi K3 | 4.16716 | 15.00 | 277,811 |
+| Gemma-4-31b | 0.03146 | 0.340 | 92,529 |
+| glm-5.2 | 0.32428 | 3.740 | 86,706 |
+| MiniMax-M2.5 | 0.00198 | 1.080 | **1,833** |
+
+**A 691x spread.** Intensity is a property of what buyers do on that model, not of
+the model, and it varies by nearly three orders of magnitude. Any break-even
+transferred on that basis could be wrong by 100x — worse than an honest blank.
+
+This also reframes deepseek-v4-flash: it is not loss-making because its token
+price is high. At $0.159/M it is the **cheapest** model we run. It loses because
+buyers push 690x more tokens through it than through MiniMax **while paying by the
+hour**. Hourly pricing and per-token cost are structurally mismatched, and the
+mismatch is worst exactly where volume is highest.
+
+**You cannot borrow another provider's sessions to estimate this.** Chain records
+the sale, never the cost of goods: other providers run their own backends. The
+only two ways to fill a blank are to sell a session on that model, or to give each
+model its **own OpenRouter key**, which makes every session exactly attributable
+from the first one.
+
+### Break-even can sit above the price the book will bear
+
+A break-even price is only useful next to the highest price that still holds a
+rank. Since `score = quality / price` and quality survives a repost, the tie price
+is recoverable as `myScore × myPrice ÷ bestRivalScore`.
+
+Measured on 2026-08-27:
+
+| Model | Break-even | Max price still #1 | Outcome |
+|---|---|---|---|
+| deepseek-v4-flash | 2.3551 | 0.3221 | **no profitable price exists** — 7.3x the ceiling |
+| Gemma-4-31b | 0.3678 | 0.2216 | profitable only by giving up rank 1 |
+| gpt-oss-120b | 0.4679 | 1.0184 | comfortable |
+| MiniMax-M2.5 | 0.0231 | 2.8413 | 22x clear — was badly underpriced |
+
+Where break-even exceeds the ceiling, pricing is not the lever: the choice is drop
+the bid or hold it as a known loss. Where the ceiling is far above break-even, the
+bid was leaving money on the table — MiniMax sat at 0.5118 with room to 2.84.
+
+**Rank is not what routes the work.** Across 08-18 → 08-23 our Gemma share moved
+9.8% → 67% → 19% with our price constant at 0.2767 the entire time; the swing
+tracked how much the incumbent was running, not our rank. Elsewhere we held rank 1
+on Claude Opus 4.7 and Sonnet 5 and took **zero** sessions while a rank-5 provider
+took 59 of 59 and 40 of 57. Do not buy rank expecting volume.
+
 ### Putting them together
 
 A model is worth bidding on only if:

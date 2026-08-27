@@ -1,7 +1,7 @@
 # Operations Handoff
 
 Everything needed to run, diagnose and extend the MORCompute provider.
-Current as of 2026-08-18.
+Current as of **2026-08-27**.
 
 No secrets appear in this repository. Where a credential is needed, its
 **location** is given, never its value.
@@ -43,8 +43,16 @@ SSH               ~/.ssh/morpheus_ed25519  on the operator machine
 
 ## 2. Current position
 
-14 active bids, rank #1 on all 14. Roughly 43% of network session volume is
-addressable. See `docs/PRICING_STRATEGY.md` for why each price is what it is.
+**The live bid list is no longer published here.** It used to be, and that was a
+re-identification hole: this repo deliberately keeps `PROVIDER_ADDRESS` out, but
+publishing an exact 14-model price list lets anyone match it against the public
+census in one pass and recover the address anyway. The identity rule is only as
+strong as its weakest disclosure. Current prices live on the private My node tab.
+
+What is safe to state: **14 active bids**, and see `docs/PRICING_STRATEGY.md` for
+the *method* behind each price. The table below is a frozen 2026-08-18 snapshot,
+kept because the rest of the document refers to it, and is **stale** — prices have
+moved several times since.
 
 ```
 Claude Opus 4.7        11.5381 MOR/day     Claude Sonnet 5      5.4207
@@ -102,11 +110,36 @@ Tunable by environment variable: `REPRICE_STEP` (0.40), `REPRICE_MIN_SESSIONS`
 6. `docker compose restart` again so `hasActiveBid` refreshes.
 7. Verify rank via `/blockchain/models/{id}/bids/rated`.
 
-### Claim earnings
+### Claim earnings — there is no claim step
 
-Not yet automated. This is the largest outstanding gap. Endpoints exist:
-`/proxy/sessions/{id}/providerClaimableBalance` and
-`/proxy/sessions/{id}/providerClaim`.
+**Corrected 2026-08-23.** Provider payouts are **automatic**. MOR arrives on
+session close from the network payout contract
+`0x5160c0311a95e0a1072fa85df23712a7ba1cd4b1` — never from the diamond, never from
+an EOA. Traced from MOR ERC-20 Transfer logs: 4.1618 MOR over three days, every
+transfer from that one contract, amounts landing at session-close times and
+matching session earnings exactly. Nothing in 72 h of router logs matches `claim`
+or `withdraw`. In one 5-hour window that contract paid **8 distinct providers**,
+all names from our own census.
+
+So the long-standing "claim → re-stake automation" backlog item does not need a
+*claim* leg at all. **Only re-staking is manual.**
+
+### Set an exact price
+
+`reprice.py` is a *strategy* tool: it walks a fraction of the way toward a
+computed tie point and only touches its `LARGE_PAYMENT` list. It cannot express
+"put this model at exactly this number", which is what a break-even reprice is.
+
+```bash
+python3 /root/morpheus/setprice.py          # dry run — shows the rank you would land at
+python3 /root/morpheus/setprice.py --go     # send
+```
+
+Targets are a dict at the top of the file. It checks gas and MOR against the fee
+before doing anything (0.3 MOR per bid, and the old bid is replaced, not
+refunded), prints the tie price and the rank the new price implies, and verifies
+nothing — **read the new prices back from `getProviderActiveBids` afterwards**,
+because the API returning success is not the chain having changed.
 
 ---
 
