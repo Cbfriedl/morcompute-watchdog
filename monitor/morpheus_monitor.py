@@ -77,6 +77,22 @@ def load_config():
     CFG["models_config"] = env("MODELS_CONFIG",
                                "/root/morpheus/morpheus-data/models-config.json")
     CFG["or_min_credits"] = float(env("OPENROUTER_MIN_CREDITS", "5"))
+    # A LEVEL alarm cannot catch a burn. On 2026-09-01 spend went from $0.002 to
+    # $2.20 per sample and ran 18 hours without firing, because the balance never
+    # crossed the floor until the money was gone. These two are RATE alarms over
+    # the same total_usage figure the balance check already reads.
+    # a cold rated-book probe measured 58s; 30s was producing false alarms
+    CFG["rated_timeout"] = float(env("RATED_TIMEOUT", "120"))
+    CFG["rated_slow_seconds"] = float(env("RATED_SLOW_SECONDS", "75"))
+    CFG["or_max_usd_hr"] = float(env("OPENROUTER_MAX_USD_PER_HOUR", "0.50"))
+    CFG["or_min_hours_left"] = float(env("OPENROUTER_MIN_HOURS_LEFT", "6"))
+    # Automatic defence. At this much runway left, park the bids on whatever we
+    # are currently serving at the top of their book: measured across 26 models,
+    # the max bid takes 0.04% of sessions, so it keeps the listing alive and
+    # stops the next session starting. PARK_ENABLED=false disables it entirely.
+    CFG["park_hours"] = float(env("PARK_AT_HOURS_LEFT", "2"))
+    CFG["park_enabled"] = env("PARK_ENABLED", "true").lower() == "true"
+    CFG["park_script"] = env("PARK_SCRIPT", "/root/morpheus/park_bids.py")
 
 
 # --------------------------------------------------------------------------
@@ -278,6 +294,66 @@ def get_router_health():
     return out
 
 
+def get_rpc_pool_health():
+    """Probe every RPC in the router's own pool, plus the rated book on top.
+
+    On 2026-08-28T08:12Z Lava discontinued base.lava.build. It stayed in the
+    router's 8-endpoint pool, and because one rated-book request fans out into
+    dozens of RPC calls that each round-robin independently, a single dead
+    member failed ~99% of requests: (7/8)^30 ~= 1.8% survived. Rank and
+    reputation were blank for two days and nothing alerted. A pool is only as
+    healthy as its worst member, so check members individually -- an aggregate
+    "is the RPC up" probe passes right through this failure.
+    """
+    out = {"pool": [], "dead": [], "rated_ok": None}
+    auth = CFG["router_auth"] or None
+    try:
+        cfg = json.loads(http(CFG["router_url"] + "/config", timeout=15, auth=auth))
+        urls = (cfg.get("DerivedConfig") or {}).get("EthNodeURLs") or []
+    except Exception as e:
+        out["error"] = str(e)[:120]
+        return out
+    out["pool"] = urls
+    body = json.dumps({"jsonrpc": "2.0", "id": 1,
+                       "method": "eth_blockNumber", "params": []}).encode()
+    for u in urls:
+        try:
+            r = json.loads(http(u, data=body, timeout=15,
+                                headers={"content-type": "application/json"}))
+            if "error" in r:
+                e = r["error"]
+                # some endpoints return error as a bare string, not an object
+                raise RuntimeError(e.get("message", "rpc error")
+                                   if isinstance(e, dict) else str(e))
+        except Exception as e:
+            out["dead"].append("%s -- %s" % (u, str(e)[:70]))
+
+    # the symptom that actually matters to the dashboard
+    #
+    # The 30s timeout this used to carry produced false "rated book down"
+    # alarms. Scoring a bid book is dozens of chain reads, and the balancer's
+    # soft cache is only 30s, so a probe every 10 minutes is ALWAYS cold:
+    # measured 58.1s cold, 15.8s on the second call, 1.7s on the third. The book
+    # was answering 200 the whole time. Give it room, and report how long it
+    # took so genuine degradation is still visible as slowness rather than
+    # being rounded to "down".
+    try:
+        models = json.loads(http(CFG["router_url"] + "/v1/models",
+                                 timeout=15, auth=auth))
+        mid = next((m["Id"] for m in models
+                    if int(m.get("Id", "0x0"), 16) != 0), None)
+        if mid:
+            t0 = time.time()
+            http(CFG["router_url"] + "/blockchain/models/%s/bids/rated" % mid,
+                 timeout=CFG["rated_timeout"], auth=auth)
+            out["rated_seconds"] = round(time.time() - t0, 1)
+            out["rated_ok"] = True
+    except Exception as e:
+        out["rated_ok"] = False
+        out["rated_error"] = str(e)[:140]
+    return out
+
+
 # --------------------------------------------------------------------------
 # state / alerting
 # --------------------------------------------------------------------------
@@ -287,7 +363,7 @@ def load_state():
         with open(STATE_PATH) as f:
             return json.load(f)
     except Exception:
-        return {"alerts": {}, "rpc_failures": 0}
+        return {"alerts": {}, "rpc_failures": 0, "or_sample": None}
 
 
 def save_state(s):
@@ -363,6 +439,31 @@ def main():
         "Monitor cannot read chain",
         "%d consecutive RPC failures via %s\n%s"
         % (fails, CFG["rpc"], metrics.get("chain_error", ""))))
+
+    # ---- router RPC pool + rated book ------------------------------------
+    pool = get_rpc_pool_health()
+    metrics["rpc_pool"] = {"size": len(pool.get("pool", [])),
+                           "dead": pool.get("dead", []),
+                           "rated_ok": pool.get("rated_ok")}
+    findings.append((
+        "rpc_pool_dead", bool(pool.get("dead")), "high",
+        "Dead RPC endpoint in router pool",
+        "Not answering:\n%s\n\nOne dead member poisons ~99%% of rated-book "
+        "calls, so rank and reputation go blank."
+        % "\n".join(pool.get("dead", []))))
+    metrics["rated_probe_seconds"] = pool.get("rated_seconds")
+    findings.append((
+        "rated_book_slow",
+        pool.get("rated_seconds") is not None
+        and pool["rated_seconds"] > CFG["rated_slow_seconds"], "default",
+        "Rated bid book slow: %.0fs" % (pool.get("rated_seconds") or 0),
+        "The book still answers, but a cold scoring pass took %.0fs. It is not "
+        "down; watch it rather than acting." % (pool.get("rated_seconds") or 0)))
+    findings.append((
+        "rated_book_down", pool.get("rated_ok") is False, "high",
+        "Rated bid book unavailable",
+        "Router cannot serve /bids/rated: %s\nRank, reputation and the #1 "
+        "price ceiling are unavailable." % pool.get("rated_error", "")))
 
     if chain_ok:
         headroom = prov["stake"] - prov["limitPeriodEarned"]
@@ -497,6 +598,85 @@ def main():
         "OpenRouter check failed",
         "Could not read the OpenRouter balance: %s\nIf the key is rejected, every "
         "session will fail while still costing you headroom." % orr.get("error")))
+
+    # ---- OpenRouter SPEND RATE ------------------------------------------
+    # Differences two consecutive total_usage samples. The monitor already takes
+    # this reading every 10 minutes, so this adds no polling and no new secret.
+    rate = None          # $/hour since the last sample
+    hours_left = None    # at that rate, until the credit is gone
+    spent = None         # dollars actually spent since the last sample
+    mins = None          # over how many minutes
+    prev = state.get("or_sample")
+    if orr["ok"]:
+        used = orr.get("total_usage")
+        if prev and used is not None:
+            dt = now - prev.get("ts", 0)
+            du = used - prev.get("usage", 0)
+            # A drop means a top-up or a counter reset, not negative spend; a
+            # very short gap makes the divisor noise. Neither is a measurement.
+            if dt >= 120 and du >= 0:
+                rate = du / dt * 3600.0
+                spent, mins = du, dt / 60.0
+                if rate > 0 and orr.get("remaining") is not None:
+                    hours_left = max(orr["remaining"], 0) / rate
+        if used is not None:
+            state["or_sample"] = {"ts": now, "usage": used}
+    metrics["openrouter_rate_usd_hr"] = round(rate, 5) if rate is not None else None
+    metrics["openrouter_hours_left"] = round(hours_left, 2) if hours_left is not None else None
+
+    findings.append((
+        "or_spend_rate", rate is not None and rate > CFG["or_max_usd_hr"], "high",
+        "OpenRouter burn: $%.2f/hour" % (rate or 0),
+        # Deliberately NOT "$x/day if it holds". These burns are bursts — 09-01
+        # ran ~85 minutes and cost $8.63 — so a rate x 24 projection invents a
+        # number larger than the whole account and can never come true. The
+        # honest figures are what was actually spent, and how long the credit
+        # survives at the rate being measured right now.
+        "$%.2f spent in the last %.0f minutes — $%.2f/hour, over the $%.2f/hour "
+        "threshold.\nCredit left: $%.2f%s.\n"
+        "Revenue is priced per SECOND of session; cost is priced per TOKEN, so a "
+        "heavy buyer on an underpriced model burns money for as long as it runs. "
+        "Find the model with `journalctl -u morpheus-monitor | grep total_usage` "
+        "and cross-reference sessions open in the spike window."
+        % (spent or 0, mins or 0, rate or 0, CFG["or_max_usd_hr"],
+           orr.get("remaining") or 0,
+           "" if hours_left is None else ", about %.1f hours at this rate" % hours_left)))
+
+    findings.append((
+        "or_burndown",
+        hours_left is not None and hours_left < CFG["or_min_hours_left"], "high",
+        "OpenRouter credit exhausts in %.1f h" % (hours_left or 0),
+        "At the current $%.2f/hour, the remaining $%.2f runs out in %.1f hours.\n"
+        "At zero every model fails at once while still consuming headroom."
+        % (rate or 0, orr.get("remaining") or 0, hours_left or 0)))
+
+    # ---- automatic defence -----------------------------------------------
+    # Price is the only lever that acts inside minutes. It cannot stop the
+    # session already running - that keeps burning until it closes - but it
+    # stops the next one, which on 09-01 would have been two of the three.
+    park_report = None
+    if (CFG["park_enabled"] and hours_left is not None
+            and hours_left <= CFG["park_hours"]):
+        try:
+            pr = subprocess.run([sys.executable, CFG["park_script"], "--go"],
+                                capture_output=True, timeout=420, text=True)
+            park_report = ((pr.stdout or "") + (pr.stderr or "")).strip()[-700:]
+        except Exception as e:
+            park_report = "park script failed: %s" % str(e)[:200]
+        sys.stderr.write("PARK TRIGGERED (%.2f h left):\n%s\n" % (hours_left, park_report))
+    metrics["park_report"] = park_report
+
+    findings.append((
+        "or_parked", park_report is not None, "urgent",
+        "Bids PARKED — credit exhausts in %.1f h" % (hours_left or 0),
+        "Spend is $%.2f/hour with $%.2f left, so the bids on the models being "
+        "served were moved to the top of their book. They stay listed and keep "
+        "their reputation, but should stop winning new sessions (the max bid "
+        "takes 0.04%% of sessions across the market).\n\n%s\n\n"
+        "A session already running is NOT stopped and keeps spending until it "
+        "closes. Top up the credit, then restore prices with:\n"
+        "  python3 %s --restore --go"
+        % (rate or 0, orr.get("remaining") or 0, park_report or "", CFG["park_script"])))
 
     findings.append((
         "or_low_credits",

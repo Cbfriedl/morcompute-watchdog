@@ -1,0 +1,14 @@
+[Unit]
+Description=Local Base RPC balancer for the Morpheus router
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/morpheus
+ExecStart=/usr/bin/python3 /root/morpheus/rpc_balancer.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
