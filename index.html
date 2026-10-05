@@ -173,7 +173,10 @@ function drawKpis(){
   const S = sum(sKey()), V = sum(mKey()), Vx = sumX(mKey()), Sx = sumX(sKey());
   const days = TF==="d1" ? 1 : TF==="d10" ? (C.windowDays||10) : null;
 
-  const live = Object.entries(PD).filter(([,p])=>!p.deleted);
+  /* Contending + Choked split the Providers card: addresses holding at least
+     one bid. Registered providers with no bid are in neither. */
+  const bidding = new Set(MS.flatMap(m=>(m.pv||[]).map(([a])=>String(a).toLowerCase())));
+  const live = Object.entries(PD).filter(([a,p])=>!p.deleted && bidding.has(a.toLowerCase()));
   const contend = live.filter(([,p])=>(p.head||0) > CHOKE);
   const choked  = live.filter(([,p])=>(p.head||0) <= CHOKE);
 
@@ -187,7 +190,7 @@ function drawKpis(){
     kpi("Providers", int(C.biddingAddresses), "hold at least one bid","hold"),
     kpi("Contending", int(contend.length), "have headroom — can be paid","hold"),
     kpi("Choked", int(choked.length),
-        live.length? pct(100*choked.length/live.length,0)+" of registered — cannot be paid":"none","choke"),
+        live.length? pct(100*choked.length/live.length,0)+" of providers — cannot be paid":"none","choke"),
     kpi("MOR paid", mor(V),
         (S? fmt(V/S,4)+" MOR/session":"—"),"earn"),
     kpi("non-MORDiem Val", mor(Vx),
