@@ -294,10 +294,13 @@ async function drawHistory(){
 /* ---------------- choked + stake table ---------------- */
 function drawProviders(){
   const live = Object.entries(PD).filter(([,p])=>!p.deleted);
-  const choked = live.filter(([,p])=>(p.head||0) <= CHOKE);
+  /* Same basis as the Contending/Choked cards: providers holding a bid. */
+  const bidding = new Set((C.models||[]).flatMap(m=>(m.pv||[]).map(([a])=>String(a).toLowerCase())));
+  const bidders = live.filter(([a])=>bidding.has(a.toLowerCase()));
+  const choked = bidders.filter(([,p])=>(p.head||0) <= CHOKE);
   const real = choked.filter(([,p])=>(p.stake||0) >= 100);
   document.getElementById("chokecall").innerHTML =
-    "<h3>"+choked.length+" of "+live.length+" registered providers have run their headroom to zero</h3>"+
+    "<h3>"+choked.length+" of "+bidders.length+" bidding providers have run their headroom to zero</h3>"+
     "<p>Their earnings equal their stake, so they are earning <strong>nothing</strong> right "+
     "now — silently. No error, no log line, no on-chain event marks the transition.</p>"+
     "<p>Of those "+choked.length+", <strong>"+real.length+"</strong> hold 100 MOR or more. "+
