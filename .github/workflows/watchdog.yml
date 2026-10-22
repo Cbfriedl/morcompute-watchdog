@@ -42,16 +42,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Run watchdog
         id: watch
         continue-on-error: true   # still record the probe when the node is down
+        # exits 1 only on a real outage; low headroom alerts via ntfy instead
         env:
           PROVIDER_ADDRESS: ${{ vars.PROVIDER_ADDRESS }}
           PROVIDER_ENDPOINT: ${{ vars.PROVIDER_ENDPOINT }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          HEADROOM_WARN_PCT: "30"
+          HEADROOM_OK_DAYS: "5"
           STATUS_FILE: status.json
         run: python3 watchdog/watchdog.py
 

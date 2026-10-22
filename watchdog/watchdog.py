@@ -15,8 +15,9 @@ Because Actions runners are ephemeral there is no persistent state, so this
 alerts on every failing run rather than edge-triggering. For "the box is
 dead", repeated alerts are the correct behaviour.
 
-Exit code: 0 if all checks pass, 1 if any check failed (so the Actions run
-also shows red in the UI, giving a second, independent signal).
+Exit code: 0 unless the node is actually broken (unreachable, inactive, or the
+chain unreadable), so a red Actions run always means an outage. Low headroom is
+a warning: it alerts via ntfy but never fails the run.
 """
 
 import json
@@ -40,10 +41,13 @@ RPCS = [r.strip() for r in os.environ.get(
 ).split(",") if r.strip()]
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
-HEADROOM_WARN_PCT = float(os.environ.get("HEADROOM_WARN_PCT", "30"))
+# Headroom only matters when it would run out within this many days at the
+# last 24 h earning rate; the percentage of stake is irrelevant.
+HEADROOM_OK_DAYS = float(os.environ.get("HEADROOM_OK_DAYS", "5"))
 TCP_TIMEOUT = float(os.environ.get("TCP_TIMEOUT", "12"))
 
 problems = []
+warnings = []
 notes = []
 
 
@@ -110,6 +114,7 @@ def main():
 
     # ---- chain state --------------------------------------------------
     endpoint = ENDPOINT
+    headroom_mor = earned_mor = None
     try:
         w = words(rpc("eth_call", [{"to": DIAMOND,
                                     "data": SEL_GET_PROVIDER + addr}, "latest"]))
@@ -127,6 +132,7 @@ def main():
                                            "latest"]), 16))
 
         headroom = stake - earned
+        headroom_mor, earned_mor = headroom / WEI, earned / WEI
         pct = (100.0 * headroom / stake) if stake else 0.0
         notes.append("stake %.2f MOR | earned %.2f | headroom %.2f (%.1f%%) | "
                      "active=%s | endpoint=%s"
@@ -142,10 +148,6 @@ def main():
             problems.append("PROVIDER NOT ACTIVE on-chain (isDeleted=%s active=%s). "
                             "If unintended, treat as key compromise."
                             % (deleted, active))
-        if stake and pct < HEADROOM_WARN_PCT:
-            problems.append("Headroom %.1f%% (%.2f/%.2f MOR) below %.0f%% — the "
-                            "reward limiter pays ZERO SILENTLY at 0."
-                            % (pct, headroom / WEI, stake / WEI, HEADROOM_WARN_PCT))
     except Exception as e:
         problems.append("Cannot read chain state from any RPC: %s" % str(e)[:200])
 
@@ -181,6 +183,11 @@ def main():
         # 7 days at one probe per 13 min ~= 776 entries
         checks = checks[-800:]
         now_ts = int(time.time())
+        # Earned samples give the earning rate for the headroom runway.
+        earned_hist = hist.get("earned") or []
+        if earned_mor is not None:
+            earned_hist.append({"t": now_ts, "mor": round(earned_mor, 4)})
+        earned_hist = [e for e in earned_hist if now_ts - e["t"] <= 8 * 86400]
         def uptime_pct(window):
             sel = [c for c in checks if now_ts - c["t"] <= window]
             return round(100.0 * sum(c["ok"] for c in sel) / len(sel), 2) if sel else None
@@ -193,6 +200,7 @@ def main():
             "checks_total": len(checks),
             "first_check": checks[0]["t"],
             "checks": checks,
+            "earned": earned_hist,
         }
         with open(hist_path, "w") as f:
             json.dump(hist, f, separators=(",", ":"))
@@ -200,11 +208,45 @@ def main():
                      % (hist["uptime_24h"], hist["uptime_7d"], len(checks)))
     except Exception as e:
         sys.stderr.write("could not update status file: %s\n" % e)
+        earned_hist = []
+
+    # ---- headroom runway (warning only) -------------------------------
+    # Rate from the oldest sample at least 6 h old within the last ~24 h. A
+    # drop in earned means a new reward period, so samples before it are
+    # skipped. Too little history means no verdict, never an alert.
+    if headroom_mor is not None:
+        now_ts = int(time.time())
+        base = None
+        for e in earned_hist:
+            age = now_ts - e["t"]
+            if e["mor"] > earned_mor + 0.01:
+                base = None
+            elif 6 * 3600 <= age <= 26 * 3600 and base is None:
+                base = e
+        if base:
+            rate = (earned_mor - base["mor"]) * 86400 / (now_ts - base["t"])
+            if rate > 0:
+                days = headroom_mor / rate
+                notes.append("headroom runway %.1f days at %.2f MOR/day"
+                             % (days, rate))
+                if days < HEADROOM_OK_DAYS:
+                    warnings.append(
+                        "Headroom %.2f MOR lasts %.1f days at %.2f MOR/day "
+                        "(under %.0f). Sessions stop paying at 0 — top up "
+                        "before then." % (headroom_mor, days, rate,
+                                          HEADROOM_OK_DAYS))
 
     # ---- report -------------------------------------------------------
     body = "%s\n\n%s" % (stamp, "\n".join(notes))
     print(body)
+    if warnings and not problems:
+        print("\nWARNINGS:\n" + "\n".join(warnings))
+        notify("Morpheus watchdog: headroom",
+               "\n\n".join(warnings) + "\n\n---\n" + body,
+               priority="high", tags="warning")
+        return 0
     if problems:
+        problems.extend(warnings)
         msg = "\n\n".join(problems) + "\n\n---\n" + body
         print("\nPROBLEMS:\n" + "\n".join(problems), file=sys.stderr)
         notify("Morpheus watchdog: %d problem(s)" % len(problems), msg)
